@@ -49,29 +49,34 @@
         </button>
         <button class="game-card active" type="button" data-game="math">
           <span class="card-badge">쉬워요</span>
-          <img src="assets/kid-picture-pick-v1.webp" alt="그림에 알맞은 영어 단어를 찾는 놀이">
+          <img src="assets/kid-picture-pick-v1.webp" alt="한국어 문제를 듣고 알맞은 영어 단어를 찾는 놀이">
           <b aria-hidden="true">🖼️</b>
-          <span>그림 단어 찾기<small>그림과 단어를 짝꿍!</small></span>
+          <span>그림 단어 찾기<small>한국어 듣고 영어 고르기!</small></span>
         </button>
         <button class="game-card" type="button" data-game="squat">
-          <span class="card-badge">튼튼</span>
-          <img src="assets/kid-squat-v1.webp" alt="영어 안내를 듣고 동작을 따라 하는 놀이">
+          <span class="card-badge">6개 미션</span>
+          <img src="assets/kid-action-missions-v2.webp" alt="서로 다른 영어 동작 여섯 가지를 따라 하는 미션">
           <b aria-hidden="true">🙆</b>
-          <span>영어 동작 놀이<small>듣고 몸으로 따라 해요!</small></span>
+          <span>영어 동작 미션<small>서로 다른 영어 동작 6개!</small></span>
         </button>
         <button class="game-card" type="button" data-game="jack">
           <span class="card-badge">신나요</span>
-          <img src="assets/kid-star-jump-v1.webp" alt="영어 안내를 듣고 별 모양으로 움직이는 놀이">
+          <img src="assets/kid-star-jump-v1.webp" alt="뛰지 않고 팔과 다리를 별 모양으로 움직이는 놀이">
           <b aria-hidden="true">⭐</b>
-          <span>별 점프<small>OPEN, CLOSE를 배워요!</small></span>
+          <span>별 모양 쭉쭉<small>뛰지 않아도 돼요!</small></span>
         </button>
       </div>
+
+      <aside class="motion-safety" role="note" aria-label="동작 놀이 안전 약속">
+        <strong><span aria-hidden="true">🧸</span> 움직이기 전 안전 약속</strong>
+        <span>주변을 두 걸음 비우고, 미끄럽지 않은 바닥에서 보호자와 함께해요.</span>
+      </aside>
 
       <div class="actions">
         <button id="startBtn" class="primary" type="button">📷 카메라로 시작!</button>
         <button id="demoBtn" class="secondary" type="button">👀 먼저 구경하기</button>
       </div>
-      <p id="gameDescription" class="game-description"><span aria-hidden="true">🖼️</span> 그림과 같은 영어 단어를 손으로 골라요.</p>
+      <p id="gameDescription" class="game-description"><span aria-hidden="true">🖼️</span> 한국어 문제를 듣고 알맞은 영어 단어를 손으로 골라요.</p>
       <p class="privacy"><span aria-hidden="true">🔒</span><strong>부모님께:</strong> 카메라 영상은 이 기기 안에서만 동작 인식에 사용되며 저장하거나 전송하지 않아요.</p>
     </section>
 
@@ -95,7 +100,7 @@
 
     <div id="countdown" class="countdown hidden" aria-live="assertive"></div>
     <img id="motionArt" class="motion-art hidden" src="assets/kid-picture-pick-v1.webp" alt="현재 영어 놀이 동작 안내">
-    <div id="cue" class="cue hidden" role="status"><small>이렇게 해요!</small><strong></strong><span></span><button id="listenBtn" class="listen-btn hidden" type="button" aria-label="영어 안내 다시 듣기">🔊 다시 듣기</button></div>
+    <div id="cue" class="cue hidden" role="status"><small>이렇게 해요!</small><strong></strong><span></span><button id="listenBtn" class="listen-btn hidden" type="button" aria-label="현재 안내 다시 듣기">🔊 다시 듣기</button></div>
     <div id="toast" class="toast" aria-live="polite"></div>
 
     <section id="result" class="panel result-panel hidden">
@@ -104,8 +109,8 @@
       <div class="grade" id="grade" aria-label="칭찬 스티커">🌟</div>
       <div class="result-grid">
         <div><small>모은 별</small><strong id="finalScore">0개</strong></div>
-        <div><small>도전 횟수</small><strong id="accuracy">0번</strong></div>
-        <div><small>최고 연속</small><strong id="maxCombo">0</strong></div>
+        <div><small id="resultMetricLabel">도전 횟수</small><strong id="accuracy">0번</strong></div>
+        <div><small id="resultStreakLabel">최고 연속</small><strong id="maxCombo">0</strong></div>
       </div>
       <button id="retryBtn" class="primary" type="button">🌟 한 번 더!</button>
       <button id="menuBtn" class="secondary result-menu" type="button">🏠 다른 놀이 고르기</button>

@@ -12,7 +12,8 @@ const ui = {
   toast: $("#toast"), demoHelp: $("#demoHelp"), motionArt: $("#motionArt"), tracking: $("#trackingStatus"),
   listen: $("#listenBtn"), home: $("#homeBtn"),
   score: $("#score"), combo: $("#combo"), time: $("#time"), finalScore: $("#finalScore"),
-  accuracy: $("#accuracy"), maxCombo: $("#maxCombo"), grade: $("#grade")
+  accuracy: $("#accuracy"), maxCombo: $("#maxCombo"), grade: $("#grade"),
+  resultMetricLabel: $("#resultMetricLabel"), resultStreakLabel: $("#resultStreakLabel")
 };
 
 const bg = new Image();
@@ -37,14 +38,27 @@ const WORDS = [
   { word: "FISH", emoji: "🐟", ko: "물고기" },
   { word: "MILK", emoji: "🥛", ko: "우유" },
   { word: "STAR", emoji: "⭐", ko: "별" },
-  { word: "BIRD", emoji: "🐦", ko: "새" }
+  { word: "BIRD", emoji: "🐦", ko: "새" },
+  { word: "BALL", emoji: "⚽", ko: "공" },
+  { word: "BOOK", emoji: "📕", ko: "책" },
+  { word: "TREE", emoji: "🌳", ko: "나무" },
+  { word: "DUCK", emoji: "🦆", ko: "오리" }
+];
+
+const ACTION_COMMANDS = [
+  { id: "handsUp", en: "Raise your hands!", ko: "두 손을 높이 들어요", emoji: "🙌", hold: 320, required: [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "touchHead", en: "Touch your head!", ko: "한 손으로 머리를 톡", emoji: "👋", hold: 300, required: [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh], focus: [LM.nose, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "airplane", en: "Make an airplane!", ko: "양팔을 옆으로 쭉 펴요", emoji: "✈️", hold: 340, required: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "clap", en: "Clap your hands!", ko: "두 손을 가슴 앞에서 모아요", emoji: "👏", hold: 220, required: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "oneLeg", en: "Lift one foot!", ko: "벽을 잡고 한 발을 들어요", emoji: "🦩", hold: 440, required: [LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra], focus: [LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra] },
+  { id: "squat", en: "Squat down and stand up!", ko: "딱 한 번 앉았다 일어나요", emoji: "🪑", hold: 240, required: [LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra], focus: [LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra] }
 ];
 
 const games = {
-  sequence: { name: "SPELL POP", ms: 60000, image: "assets/kid-spell-pop-v1.webp", fullBody: false, description: "그림을 보고 알파벳을 차례대로 톡톡 터치해요." },
-  math: { name: "PICTURE PICK", ms: 60000, image: "assets/kid-picture-pick-v1.webp", fullBody: false, description: "그림과 같은 영어 단어를 손으로 골라요." },
-  squat: { name: "MOVE & SAY · SQUAT", ms: 45000, image: "assets/kid-squat-v1.webp", fullBody: true, description: "SQUAT을 듣고 앉았다 일어나며 영어와 친해져요." },
-  jack: { name: "MOVE & SAY · STAR JUMP", ms: 45000, image: "assets/kid-star-jump-v1.webp", fullBody: true, description: "OPEN, CLOSE를 들으며 신나는 별 점프를 해요." }
+  sequence: { name: "SPELL POP", ms: 60000, image: "assets/kid-spell-pop-v1.webp", fullBody: false, description: "한국어 그림 힌트를 보고 영어 철자를 차례대로 완성해요." },
+  math: { name: "PICTURE PICK", ms: 60000, image: "assets/kid-picture-pick-v1.webp", fullBody: false, description: "한국어 문제를 듣고 알맞은 영어 단어를 손으로 골라요." },
+  squat: { name: "LISTEN & MOVE · 6 MISSIONS", ms: 80000, image: "assets/kid-action-missions-v2.webp", fullBody: true, description: "서로 다른 영어 동작 6개를 듣고 차례로 따라 해요." },
+  jack: { name: "MOVE & SAY · STAR POSE", ms: 45000, image: "assets/kid-star-jump-v1.webp", fullBody: true, description: "OPEN, CLOSE를 들으며 뛰지 않고 별처럼 활짝 펴요." }
 };
 
 let selectedGame = "math";
@@ -88,6 +102,9 @@ let adaptiveInferenceInterval = POSE_INFERENCE_INTERVAL;
 let lastUsablePoseAt = 0;
 let speechRoundToken = 0;
 let trackingWasPaused = false;
+let wordDeck = [];
+let completedWordCount = 0;
+let completedRun = false;
 
 const hide = (...elements) => elements.forEach((el) => el?.classList.add("hidden"));
 const show = (...elements) => elements.forEach((el) => el?.classList.remove("hidden"));
@@ -103,24 +120,37 @@ const shuffle = (items) => {
   return copy;
 };
 
-function chooseWord(previousWord = "", offset = 0) {
-  const pool = WORDS.filter((item) => item.word !== previousWord);
-  return pool[(Math.floor(Math.random() * pool.length) + offset) % pool.length];
+function nextWord() {
+  return wordDeck.shift() || null;
 }
 
-function speakEnglish(text, interrupt = false) {
+function withObjectParticle(word) {
+  const value = word || "";
+  const last = value.charCodeAt(value.length - 1) || 0;
+  const hasFinalConsonant = last >= 0xAC00 && last <= 0xD7A3 && (last - 0xAC00) % 28 !== 0;
+  return `${value}${hasFinalConsonant ? "을" : "를"}`;
+}
+
+function speakText(text, lang, interrupt = false, onDone = null) {
   if (!sound || selfTesting || !text || !window.speechSynthesis || !window.SpeechSynthesisUtterance) return false;
   try {
     if (interrupt) speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-US";
-    utterance.rate = .78;
-    utterance.pitch = 1.16;
+    utterance.lang = lang;
+    utterance.rate = lang === "ko-KR" ? .88 : .78;
+    utterance.pitch = lang === "ko-KR" ? 1.08 : 1.16;
     utterance.volume = .9;
+    if (onDone) {
+      utterance.onend = onDone;
+      utterance.onerror = onDone;
+    }
     speechSynthesis.speak(utterance);
     return true;
   } catch { return false; }
 }
+
+const speakEnglish = (text, interrupt = false, onDone = null) => speakText(text, "en-US", interrupt, onDone);
+const speakKorean = (text, interrupt = false, onDone = null) => speakText(text, "ko-KR", interrupt, onDone);
 
 function resize() {
   const bounds = app.getBoundingClientRect();
@@ -334,7 +364,10 @@ function beginCalibration() {
 }
 
 function requiredIndices(game = selectedGame, calibration = false) {
-  if (game === "squat") return [LM.nose, LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra];
+  if (game === "squat") {
+    if (!calibration && gameState?.currentAction?.required) return gameState.currentAction.required;
+    return [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra];
+  }
   if (game === "jack") return [LM.nose, LM.ls, LM.rs, LM.lw, LM.rw, LM.lh, LM.rh, LM.la, LM.ra];
   const core = [LM.nose, LM.ls, LM.rs];
   return core;
@@ -348,6 +381,18 @@ function landmarkInFrame(landmark, margin = .025) {
   return landmarkVisible(landmark, .30)
     && landmark.x >= margin && landmark.x <= 1 - margin
     && landmark.y >= margin && landmark.y <= 1 - margin;
+}
+
+function actionRequiredLandmarksUsable(action = gameState?.currentAction) {
+  if (!action?.required?.length) return false;
+  const minimum = action.id === "oneLeg" || action.id === "squat" ? .40 : .38;
+  const margin = .01;
+  return action.required.every((index) => {
+    const landmark = lastPose?.[index];
+    return landmarkVisible(landmark, minimum)
+      && landmark.x >= margin && landmark.x <= 1 - margin
+      && landmark.y >= margin && landmark.y <= 1 - margin;
+  });
 }
 
 function analyzeFit() {
@@ -365,12 +410,14 @@ function analyzeFit() {
   let tooClose;
   let tooFar;
   if (games[selectedGame].fullBody) {
+    const actionMissions = selectedGame === "squat";
     const bodyHeight = maxY - minY;
     const edge = selectedGame === "jack" ? .06 : .04;
-    const maxHeight = selectedGame === "jack" ? .78 : .90;
+    const maxHeight = selectedGame === "jack" ? .78 : actionMissions ? .82 : .90;
     centerX = (minX + maxX) / 2;
-    tooClose = bodyHeight > maxHeight || minX < edge || maxX > 1 - edge || minY < edge * .65 || maxY > 1 - edge * .4;
-    tooFar = bodyHeight < .36;
+    tooClose = bodyHeight > maxHeight || minX < edge || maxX > 1 - edge || minY < edge * .65 || maxY > 1 - edge * .4
+      || (actionMissions && lastPose[LM.nose].y < .14);
+    tooFar = bodyHeight < (actionMissions ? .44 : .36);
   } else {
     const leftShoulder = lastPose[LM.ls];
     const rightShoulder = lastPose[LM.rs];
@@ -446,6 +493,9 @@ function startDemo() {
 function resetScore() {
   score = combo = maxCombo = hits = misses = 0;
   gameElapsed = 0;
+  wordDeck = shuffle(WORDS);
+  completedWordCount = 0;
+  completedRun = false;
   lastUsablePoseAt = 0;
   trackingWasPaused = false;
   adaptiveInferenceInterval = POSE_INFERENCE_INTERVAL;
@@ -465,10 +515,14 @@ function rearmGameInput() {
     gameState.inputReady = false;
     gameState.clearMs = 0;
   } else if (selectedGame === "squat") {
-    gameState.phase = "needStand";
     gameState.stableMs = 0;
+    gameState.neutralMs = 0;
+    gameState.matching = false;
+    gameState.progress = 0;
+    gameState.commandArmed = false;
+    gameState.phase = gameState.currentAction?.id === "oneLeg" || gameState.currentAction?.id === "squat" ? "needStand" : "active";
     gameState.baselineHipY = null;
-    gameState.depth = 0;
+    gameState.groundY = null;
   } else if (selectedGame === "jack") {
     gameState.phase = "needClosed";
     gameState.stableMs = 0;
@@ -492,18 +546,25 @@ function beginGame() {
 
 function announceRound() {
   if (!gameState) return false;
-  if (selectedGame === "sequence") return speakEnglish(`Spell ${gameState.prompt.word}`, true);
-  if (selectedGame === "math") return speakEnglish(`Find ${gameState.prompt.word}`, true);
-  if (selectedGame === "squat") return speakEnglish("Squat. Down and up!", true);
-  return speakEnglish("Star jump. Open and close!", true);
+  if (selectedGame === "sequence") {
+    if (gameState.answerRevealed) return speakEnglish(gameState.prompt.word.toLowerCase(), true);
+    return speakKorean(`${gameState.prompt.ko}의 영어 철자를 완성하세요.`, true);
+  }
+  if (selectedGame === "math") {
+    if (gameState.answerRevealed) return speakEnglish(gameState.prompt.word.toLowerCase(), true);
+    return speakKorean(`${withObjectParticle(gameState.prompt.ko)} 찾으세요.`, true);
+  }
+  if (selectedGame === "squat") return speakEnglish(gameState.currentAction?.en || "Let's move!", true);
+  return speakEnglish("Open and close. Make a star!", true);
 }
 
 function scheduleRoundAnnouncement(delay = 0) {
   const token = ++speechRoundToken;
   const mode = selectedGame;
   const word = gameState?.prompt?.word || "";
+  const actionId = gameState?.currentAction?.id || "";
   setTimeout(() => {
-    if (token !== speechRoundToken || !running || selectedGame !== mode || (word && gameState?.prompt?.word !== word)) return;
+    if (token !== speechRoundToken || !running || selectedGame !== mode || (word && gameState?.prompt?.word !== word) || (actionId && gameState?.currentAction?.id !== actionId)) return;
     announceRound();
   }, delay);
 }
@@ -511,7 +572,7 @@ function scheduleRoundAnnouncement(delay = 0) {
 function createGameState(game) {
   if (game === "sequence") return createSequenceRound(1);
   if (game === "math") return createMathProblem();
-  if (game === "squat") return { phase: "needStand", reps: 0, stableMs: 0, baselineHipY: null, torso: 1, kneeAngle: 180, depth: 0 };
+  if (game === "squat") return createActionGame();
   return { phase: "needClosed", reps: 0, stableMs: 0, armsOpen: false, legsOpen: false };
 }
 
@@ -521,25 +582,28 @@ function sequenceSlots(count) {
   return [[.16, .47], [.50, .47], [.84, .47], [.32, .83], [.68, .83]].slice(0, count);
 }
 
-function createSequenceRound(round, previousWord = "") {
-  const prompt = chooseWord(previousWord, round - 1);
+function createSequenceRound(round) {
+  const prompt = nextWord();
+  if (!prompt) return null;
   const letters = [...prompt.word];
   const count = letters.length;
   const slots = sequenceSlots(count);
   return {
-    mode: "sequence", round, prompt, current: 1, inputReady: false, clearMs: 0,
+    mode: "sequence", round, prompt, current: 1, inputReady: false, clearMs: 0, answerRevealed: false, advancing: false,
     targets: slots.map(([x, y], index) => ({ value: letters[index], order: index + 1, x, y, dwell: 0, flashUntil: 0 }))
   };
 }
 
-function createMathProblem(previousWord = "") {
-  const prompt = chooseWord(previousWord, hits);
+function createMathProblem() {
+  const prompt = nextWord();
+  const distractor = nextWord();
+  if (!prompt || !distractor) return null;
   const answer = prompt.word;
-  const values = [answer, ...shuffle(WORDS.filter((item) => item.word !== answer)).slice(0, 1).map((item) => item.word)];
+  const values = shuffle([answer, distractor.word]);
   const slots = [[.25, .64], [.75, .64]];
   return {
-    mode: "math", prompt, answer, inputReady: false, clearMs: 0, startedAt: gameElapsed,
-    targets: shuffle(values).map((value, index) => ({ value, x: slots[index][0], y: slots[index][1], dwell: 0, flashUntil: 0 }))
+    mode: "math", prompt, answer, inputReady: false, clearMs: 0, startedAt: gameElapsed, answerRevealed: false, advancing: false,
+    targets: values.map((value, index) => ({ value, x: slots[index][0], y: slots[index][1], dwell: 0, flashUntil: 0 }))
   };
 }
 
@@ -662,6 +726,55 @@ function showToast(text, bad = false) {
   ui.toast.classList.add("show");
 }
 
+function finishRunSoon(title, detail, delay = 950) {
+  completedRun = true;
+  if (gameState) {
+    gameState.sessionComplete = true;
+    gameState.advancing = true;
+  }
+  inputLockedUntil = Infinity;
+  setCue(title, detail);
+  showToast(title);
+  const token = ++speechRoundToken;
+  if (selfTesting) return;
+  setTimeout(() => {
+    if (token === speechRoundToken && running) endGame();
+  }, delay);
+}
+
+function transitionAfterAnswer(completedWord, createNextRound) {
+  const answeredState = gameState;
+  answeredState.answerRevealed = true;
+  answeredState.advancing = true;
+  inputLockedUntil = Infinity;
+  updateGameCue();
+  const token = ++speechRoundToken;
+  const revealedAt = performance.now();
+  answeredState.answerHoldUntil = revealedAt + 1100;
+  let finished = false;
+  const advance = () => {
+    if (finished || token !== speechRoundToken || gameState !== answeredState) return;
+    finished = true;
+    const nextState = createNextRound();
+    if (!nextState) {
+      finishRunSoon("🎉 모든 단어를 만났어요!", `${completedWordCount}개의 영어를 배웠어요`);
+      return;
+    }
+    gameState = nextState;
+    inputLockedUntil = performance.now() + 180;
+    updateGameCue();
+    scheduleRoundAnnouncement(240);
+  };
+  if (selfTesting) { advance(); return; }
+  const advanceAfterMinimum = () => {
+    const wait = answeredState.answerHoldUntil - performance.now();
+    if (wait > 0) setTimeout(advance, wait);
+    else advance();
+  };
+  const spoken = speakEnglish(completedWord.word.toLowerCase(), true, advanceAfterMinimum);
+  setTimeout(advanceAfterMinimum, spoken ? 1550 : 1100);
+}
+
 function completeSequenceTarget(target) {
   const point = targetPoint(target);
   const completedWord = gameState.prompt;
@@ -675,10 +788,9 @@ function completeSequenceTarget(target) {
   if (gameState.current > gameState.targets.length) {
     score += 180 + gameState.targets.length * 20;
     const nextRound = gameState.round + 1;
+    completedWordCount++;
     showToast(`${completedWord.emoji} ${completedWord.word}!`);
-    speakEnglish(completedWord.word, true);
-    gameState = createSequenceRound(nextRound, completedWord.word);
-    scheduleRoundAnnouncement(720);
+    transitionAfterAnswer(completedWord, () => createSequenceRound(nextRound));
   }
   updateGameCue();
 }
@@ -696,14 +808,13 @@ function completeMathTarget(target) {
   const completedWord = gameState.prompt;
   const responseBonus = Math.max(0, 40 - Math.floor((gameElapsed - gameState.startedAt) / 250));
   award(140 + responseBonus, point.x, point.y, `${target.value} 정답!`, `${completedWord.emoji} ${completedWord.ko} = ${target.value}`);
-  speakEnglish(target.value, true);
-  inputLockedUntil = performance.now() + 180;
-  gameState = createMathProblem(completedWord.word);
-  scheduleRoundAnnouncement(700);
+  completedWordCount++;
+  transitionAfterAnswer(completedWord, createMathProblem);
   updateGameCue();
 }
 
 function updateTouchGame(dt) {
+  if (gameState?.advancing || gameState?.sessionComplete) return;
   const points = posePoints();
   const hands = handPositions(points);
   if (!hands.length || performance.now() < inputLockedUntil) return;
@@ -757,37 +868,207 @@ function exerciseFeedbackPoint(yRatio = .5) {
   return { x, y: cameraRect.y + cameraRect.h * yRatio };
 }
 
-function completeSquatRep() {
-  gameState.reps++;
-  const point = exerciseFeedbackPoint(.63);
-  const angleLabel = `${Math.round((gameState.kneeAngle || 0) / 5) * 5}°`;
-  award(140, point.x, point.y, `SQUAT ${gameState.reps}!`, `앉았다 일어나기 · ${angleLabel}`);
-  speakEnglish("Great squat!");
-  gameState.phase = "ready";
-  gameState.stableMs = 0;
+function createActionGame() {
+  const state = {
+    mode: "squat", commands: ACTION_COMMANDS, commandIndex: 0, currentAction: null,
+    completed: 0, reps: 0, stableMs: 0, neutralMs: 0, phase: "active",
+    matching: false, progress: 0, advancing: false, sessionComplete: false,
+    commandArmed: false, baselineHipY: null, groundY: null, kneeAngle: 180
+  };
+  activateActionCommand(state, 0);
+  return state;
 }
 
-function updateSquat(dt) {
-  const points = posePoints();
-  if (!points) return;
-  const feature = squatFeatures(points);
-  if (gameState.baselineHipY == null && feature.kneeAngle > 155) gameState.baselineHipY = feature.hipY;
-  if (feature.kneeAngle > 160 && gameState.phase !== "down") gameState.baselineHipY = lerp(gameState.baselineHipY ?? feature.hipY, feature.hipY, .04);
-  const drop = (feature.hipY - (gameState.baselineHipY ?? feature.hipY)) / feature.torso;
-  const standing = feature.kneeAngle > 158 && drop < .12;
-  const bottom = feature.kneeAngle < 135 && drop > .12;
-  gameState.kneeAngle = feature.kneeAngle;
-  gameState.depth = clamp((165 - feature.kneeAngle) / 55, 0, 1);
+function activateActionCommand(state, index) {
+  const action = state.commands[index];
+  state.commandIndex = index;
+  state.currentAction = action;
+  state.stableMs = 0;
+  state.neutralMs = 0;
+  state.matching = false;
+  state.progress = 0;
+  state.advancing = false;
+  state.commandArmed = action?.id === "clap" && state.commands[index - 1]?.id === "airplane";
+  state.baselineHipY = null;
+  state.groundY = null;
+  state.kneeAngle = 180;
+  state.phase = action?.id === "oneLeg" || action?.id === "squat" ? "needStand" : "active";
+  state.introUntil = performance.now() + (selfTesting ? 0 : 680);
+}
 
-  if (gameState.phase === "needStand") {
-    gameState.stableMs = standing ? gameState.stableMs + dt : 0;
-    if (gameState.stableMs >= 180) { gameState.phase = "ready"; gameState.stableMs = 0; speakEnglish("Squat"); }
-  } else if (gameState.phase === "ready") {
-    gameState.stableMs = bottom ? gameState.stableMs + dt : 0;
-    if (gameState.stableMs >= 180) { gameState.phase = "down"; gameState.stableMs = 0; showToast("UP! 일어나요"); speakEnglish("Stand up"); }
-  } else if (gameState.phase === "down") {
-    gameState.stableMs = standing ? gameState.stableMs + dt : 0;
-    if (gameState.stableMs >= 180) completeSquatRep();
+function actionMetrics(points) {
+  const shoulderWidth = Math.max(35, distance(points.ls, points.rs));
+  const shoulderMid = { x: (points.ls.x + points.rs.x) / 2, y: (points.ls.y + points.rs.y) / 2 };
+  const hipMid = { x: (points.lh.x + points.rh.x) / 2, y: (points.lh.y + points.rh.y) / 2 };
+  const torso = Math.max(shoulderWidth * .8, distance(shoulderMid, hipMid));
+  const leftArm = angle(points.lh, points.ls, points.lw);
+  const rightArm = angle(points.rh, points.rs, points.rw);
+  const leftElbow = angle(points.ls, points.le, points.lw);
+  const rightElbow = angle(points.rs, points.re, points.rw);
+  const leftKnee = lastWorldPose ? angle3D(lastWorldPose[LM.lh], lastWorldPose[LM.lk], lastWorldPose[LM.la]) : angle(points.lh, points.lk, points.la);
+  const rightKnee = lastWorldPose ? angle3D(lastWorldPose[LM.rh], lastWorldPose[LM.rk], lastWorldPose[LM.ra]) : angle(points.rh, points.rk, points.ra);
+  return {
+    shoulderWidth, shoulderMid, hipMid, torso, leftArm, rightArm, leftElbow, rightElbow,
+    leftKnee, rightKnee, kneeAngle: (leftKnee + rightKnee) / 2,
+    wristGap: distance(points.lw, points.rw), ankleGap: distance(points.la, points.ra)
+  };
+}
+
+function staticActionMatches(action, points, metric, state) {
+  if (!actionRequiredLandmarksUsable(action)) return false;
+  if (action.id === "handsUp") {
+    return metric.leftArm > 140 && metric.rightArm > 140
+      && metric.leftElbow > 115 && metric.rightElbow > 115
+      && points.lw.y < points.nose.y + metric.torso * .08
+      && points.rw.y < points.nose.y + metric.torso * .08;
+  }
+  if (action.id === "touchHead") {
+    const touchesHead = (wrist, elbowAngle, armAngle) => {
+      const dx = (wrist.x - points.nose.x) / (metric.shoulderWidth * .72);
+      const dy = (wrist.y - (points.nose.y - metric.shoulderWidth * .05)) / (metric.shoulderWidth * .64);
+      return dx * dx + dy * dy < 1 && elbowAngle < 148 && armAngle > 42 && armAngle < 172;
+    };
+    const leftTouches = touchesHead(points.lw, metric.leftElbow, metric.leftArm);
+    const rightTouches = touchesHead(points.rw, metric.rightElbow, metric.rightArm);
+    const leftDown = metric.leftArm < 65 && points.lw.y > metric.shoulderMid.y + metric.torso * .06;
+    const rightDown = metric.rightArm < 65 && points.rw.y > metric.shoulderMid.y + metric.torso * .06;
+    return (leftTouches && rightDown) || (rightTouches && leftDown);
+  }
+  if (action.id === "airplane") {
+    return metric.leftArm > 68 && metric.leftArm < 112 && metric.rightArm > 68 && metric.rightArm < 112
+      && metric.leftElbow > 138 && metric.rightElbow > 138
+      && Math.abs(points.lw.y - points.ls.y) < metric.torso * .30
+      && Math.abs(points.rw.y - points.rs.y) < metric.torso * .30
+      && metric.wristGap > metric.shoulderWidth * 2.15;
+  }
+  if (action.id === "clap") {
+    if (metric.wristGap > metric.shoulderWidth * 1.20) state.commandArmed = true;
+    const wristMid = { x: (points.lw.x + points.rw.x) / 2, y: (points.lw.y + points.rw.y) / 2 };
+    return state.commandArmed && metric.wristGap < metric.shoulderWidth * .66
+      && Math.abs(wristMid.x - metric.shoulderMid.x) < metric.shoulderWidth * .48
+      && wristMid.y > metric.shoulderMid.y - metric.torso * .08
+      && wristMid.y < metric.hipMid.y - metric.torso * .04
+      && metric.leftElbow > 38 && metric.leftElbow < 155 && metric.rightElbow > 38 && metric.rightElbow < 155;
+  }
+  return false;
+}
+
+function completeActionMission() {
+  if (gameState.advancing || gameState.sessionComplete) return;
+  const action = gameState.currentAction;
+  gameState.completed++;
+  gameState.reps = gameState.completed;
+  gameState.matching = true;
+  gameState.progress = 1;
+  gameState.advancing = true;
+  inputLockedUntil = Infinity;
+  const point = exerciseFeedbackPoint(action.id === "oneLeg" || action.id === "squat" ? .62 : .42);
+  award(170, point.x, point.y, `${action.en.replace("!", "")} ✓`, `${gameState.completed}/${gameState.commands.length} · ${action.ko}`);
+  updateGameCue();
+  const completedState = gameState;
+  const nextIndex = gameState.commandIndex + 1;
+  const token = ++speechRoundToken;
+  const celebratedAt = performance.now();
+  let moved = false;
+  const moveNext = () => {
+    if (moved || token !== speechRoundToken || gameState !== completedState) return;
+    moved = true;
+    if (nextIndex >= completedState.commands.length) {
+      finishRunSoon("🎉 영어 동작 6개 완주!", "서로 다른 명령을 모두 따라 했어요", 1050);
+      return;
+    }
+    activateActionCommand(completedState, nextIndex);
+    inputLockedUntil = performance.now() + 180;
+    updateGameCue();
+    scheduleRoundAnnouncement(220);
+  };
+  if (selfTesting) { moveNext(); return; }
+  const moveAfterMinimum = () => {
+    const wait = 780 - (performance.now() - celebratedAt);
+    if (wait > 0) setTimeout(moveNext, wait);
+    else moveNext();
+  };
+  const spoken = speakEnglish("Great job!", true, moveAfterMinimum);
+  setTimeout(moveAfterMinimum, spoken ? 1150 : 780);
+}
+
+function updateActionGame(dt) {
+  const state = gameState;
+  if (!state || state.advancing || state.sessionComplete) return;
+  const points = posePoints();
+  if (!points || (!selfTesting && performance.now() < state.introUntil)) return;
+  const action = state.currentAction;
+  if (!actionRequiredLandmarksUsable(action)) {
+    state.matching = false;
+    state.progress = 0;
+    return;
+  }
+  const metric = actionMetrics(points);
+  state.kneeAngle = metric.kneeAngle;
+
+  if (action.id === "oneLeg") {
+    const neutral = metric.leftKnee > 150 && metric.rightKnee > 150 && Math.abs(points.la.y - points.ra.y) < metric.torso * .08;
+    if (state.phase === "needStand") {
+      state.neutralMs = neutral ? state.neutralMs + dt : 0;
+      if (state.neutralMs >= 300) {
+        state.groundY = (points.la.y + points.ra.y) / 2;
+        state.phase = "active";
+        state.neutralMs = 0;
+        showToast("좋아요! 이제 한 발을 들어요");
+      }
+    } else {
+      const ankleLift = Math.abs(points.la.y - points.ra.y) > metric.torso * .20;
+      const kneeLift = Math.abs(points.lk.y - points.rk.y) > metric.torso * .08 || Math.min(metric.leftKnee, metric.rightKnee) < 145;
+      const supportKnee = points.la.y < points.ra.y ? metric.rightKnee : metric.leftKnee;
+      const supportAnkle = points.la.y < points.ra.y ? points.ra : points.la;
+      const balanced = Math.abs(metric.shoulderMid.x - metric.hipMid.x) < metric.shoulderWidth * .48;
+      state.matching = ankleLift && kneeLift && supportKnee > 148 && Math.abs(supportAnkle.y - state.groundY) < metric.torso * .14 && balanced;
+    }
+  } else if (action.id === "squat") {
+    const feature = squatFeatures(points);
+    state.kneeAngle = feature.kneeAngle;
+    if (state.phase === "needStand") {
+      const standing = feature.kneeAngle > 156;
+      state.neutralMs = standing ? state.neutralMs + dt : 0;
+      if (state.neutralMs >= 280) {
+        state.baselineHipY = feature.hipY;
+        state.phase = "ready";
+        state.neutralMs = 0;
+        showToast("좋아요! 이제 천천히 앉아요");
+      }
+    } else {
+      const drop = (feature.hipY - (state.baselineHipY ?? feature.hipY)) / feature.torso;
+      const bottom = feature.kneeAngle < 142 && drop > .12;
+      const standing = feature.kneeAngle > 156 && drop < .11;
+      if (state.phase === "ready") {
+        state.stableMs = bottom ? state.stableMs + dt : Math.max(0, state.stableMs - dt * 1.5);
+        state.progress = clamp(state.stableMs / action.hold, 0, 1);
+        state.matching = bottom;
+        if (state.stableMs >= action.hold) {
+          state.phase = "down";
+          state.stableMs = 0;
+          showToast("UP! 다시 일어나요");
+        }
+      } else if (state.phase === "down") {
+        state.stableMs = standing ? state.stableMs + dt : Math.max(0, state.stableMs - dt * 1.5);
+        state.progress = clamp(state.stableMs / action.hold, 0, 1);
+        state.matching = standing;
+        if (state.stableMs >= action.hold) completeActionMission();
+      }
+      updateGameCue();
+      return;
+    }
+  } else {
+    state.matching = staticActionMatches(action, points, metric, state);
+  }
+
+  if (state.phase === "active") {
+    state.stableMs = state.matching ? state.stableMs + dt : Math.max(0, state.stableMs - dt * 1.5);
+    state.progress = clamp(state.stableMs / action.hold, 0, 1);
+    if (state.stableMs >= action.hold) completeActionMission();
+  } else {
+    state.matching = false;
+    state.progress = 0;
   }
   updateGameCue();
 }
@@ -808,8 +1089,8 @@ function jackFeatures(points) {
 function completeJackRep() {
   gameState.reps++;
   const point = exerciseFeedbackPoint(.44);
-  award(160, point.x, point.y, `STAR JUMP ${gameState.reps}!`, "OPEN + CLOSE · 참 잘했어요!");
-  speakEnglish("Great star jump!");
+  award(160, point.x, point.y, `STAR POSE ${gameState.reps}!`, "OPEN + CLOSE · 참 잘했어요!");
+  speakEnglish("Great star pose!");
   gameState.phase = "ready";
   gameState.stableMs = 0;
 }
@@ -837,26 +1118,48 @@ function updateJack(dt) {
 
 function updateGame(dt) {
   if (selectedGame === "sequence" || selectedGame === "math") updateTouchGame(dt);
-  else if (selectedGame === "squat") updateSquat(dt);
+  else if (selectedGame === "squat") updateActionGame(dt);
   else updateJack(dt);
 }
 
 function updateGameCue() {
   if (!gameState) return;
   if (selectedGame === "sequence") {
+    if (gameState.answerRevealed) {
+      setCue(`${gameState.prompt.emoji} ${gameState.prompt.ko} = ${gameState.prompt.word} ✓`, `같이 말해요 · ${gameState.prompt.word}`);
+      return;
+    }
     const next = gameState.targets[gameState.current - 1]?.value || "";
-    setCue(`${gameState.prompt.emoji} ${gameState.prompt.ko} · ${next}를 찾아요!`, `SPELL ${gameState.prompt.word} · ${gameState.current}/${gameState.targets.length}`);
+    const progress = gameState.targets.map((target) => target.order < gameState.current ? target.value : "_").join(" ");
+    setCue(`${gameState.prompt.emoji} ${gameState.prompt.ko}의 철자를 완성해요!`, `${progress} · 다음 글자 ${next} · 단어 ${completedWordCount + 1}/${WORDS.length}`);
   } else if (selectedGame === "math") {
-    setCue(`${gameState.prompt.emoji} ${gameState.prompt.ko}는 영어로?`, "손으로 맞는 단어를 톡!");
+    if (gameState.answerRevealed) {
+      setCue(`${gameState.prompt.emoji} ${gameState.prompt.ko} = ${gameState.prompt.word} ✓`, `같이 말해요 · ${gameState.prompt.word}`);
+      return;
+    }
+    setCue(`${gameState.prompt.emoji} ${withObjectParticle(gameState.prompt.ko)} 찾으세요!`, `알맞은 영어 단어를 골라요 · ${completedWordCount + 1}/${WORDS.length / 2}`);
   } else if (selectedGame === "squat") {
-    setCue(gameState.phase === "down" ? "UP! 일어나요" : gameState.phase === "needStand" ? "READY! 바르게 서요" : "SQUAT! 앉아요", `${gameState.reps}번 성공 · 듣고 따라 해요`);
+    const action = gameState.currentAction;
+    if (!action) return;
+    if (gameState.advancing) {
+      setCue(`${action.emoji} GREAT JOB! ✓`, `미션 ${gameState.completed}/${gameState.commands.length} 완료`);
+      return;
+    }
+    let hint = action.ko;
+    if (gameState.phase === "needStand") hint = action.id === "oneLeg" ? "먼저 똑바로 서요 · 벽을 잡아도 좋아요" : "먼저 똑바로 서요";
+    else if (action.id === "squat" && gameState.phase === "ready") hint = "천천히 앉아요";
+    else if (action.id === "squat" && gameState.phase === "down") hint = "UP! 다시 일어나요";
+    setCue(`${action.emoji} ${action.en} · ${gameState.completed + 1}/${gameState.commands.length}`, hint);
   } else {
-    setCue(gameState.phase === "open" ? "CLOSE! 모아요" : gameState.phase === "needClosed" ? "READY! 차렷" : "OPEN! 별처럼 활짝", `${gameState.reps}번 성공 · STAR JUMP`);
+    setCue(gameState.phase === "open" ? "CLOSE! 모아요" : gameState.phase === "needClosed" ? "READY! 차렷" : "OPEN! 별처럼 활짝", `${gameState.reps}번 성공 · 뛰지 않아도 돼요`);
   }
 }
 
 function poseUsable(now = performance.now()) {
   if (!lastPose || now - poseTimestamp > 550) return false;
+  if (selectedGame === "squat" && gameState?.currentAction) {
+    return actionRequiredLandmarksUsable(gameState.currentAction);
+  }
   if (!requiredIndices(selectedGame).every((index) => landmarkVisible(lastPose[index], .32))) return false;
   if (selectedGame === "sequence" || selectedGame === "math") {
     return [LM.lw, LM.rw].some((index) => landmarkVisible(lastPose[index], .30));
@@ -867,7 +1170,10 @@ function poseUsable(now = performance.now()) {
 function updateHUD() {
   const remaining = Math.max(0, Math.ceil((games[selectedGame].ms - gameElapsed) / 1000));
   ui.score.textContent = `★ ${hits}`;
-  ui.combo.textContent = `🌟 ${combo}`;
+  const successes = selectedGame === "sequence" || selectedGame === "math"
+    ? completedWordCount
+    : selectedGame === "squat" ? (gameState?.completed || 0) : combo;
+  ui.combo.textContent = `🌟 ${successes}`;
   ui.time.textContent = remaining <= 10 ? "마무리" : "놀이 중";
 }
 
@@ -959,7 +1265,7 @@ function landmarkSignal(index) {
 
 function focusJointSet() {
   if (selectedGame === "sequence" || selectedGame === "math") return new Set([LM.lw, LM.rw]);
-  if (selectedGame === "squat") return new Set([LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
+  if (selectedGame === "squat") return new Set(gameState?.currentAction?.focus || [LM.ls, LM.rs, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
   return new Set([LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
 }
 
@@ -971,9 +1277,13 @@ function jointVisualColor(index, signal = landmarkSignal(index)) {
     if (index === LM.rw) return "#ff3ea5";
   }
   if (selectedGame === "squat" && (LEG_JOINTS.has(index) || index === LM.ls || index === LM.rs)) {
-    if (gameState?.phase === "down" || (gameState?.depth ?? 0) >= .72) return "#c8ff3d";
-    if ((gameState?.depth ?? 0) >= .42) return "#ffb15b";
+    if (gameState?.matching && (gameState?.progress ?? 0) >= .7) return "#c8ff3d";
+    if (gameState?.matching) return "#ffb15b";
     return "#38f6ff";
+  }
+  if (selectedGame === "squat" && (ARM_JOINTS.has(index) || index === LM.nose)) {
+    if (gameState?.matching && (gameState?.progress ?? 0) >= .7) return "#c8ff3d";
+    return gameState?.matching ? "#ffb15b" : "#38f6ff";
   }
   if (selectedGame === "jack") {
     const confirmedOpen = gameState?.phase === "open";
@@ -1059,11 +1369,13 @@ function drawPose(now = performance.now()) {
   }
   ctx.restore();
 
-  if (running && selectedGame === "squat" && Number.isFinite(gameState?.kneeAngle)) {
-    const leftKnee = points.get(LM.lk), rightKnee = points.get(LM.rk);
-    if (leftKnee?.v > .35 && rightKnee?.v > .35) {
-      const label = `${Math.round(gameState.kneeAngle / 5) * 5}°`;
-      drawCanvasPill((leftKnee.x + rightKnee.x) / 2, Math.min(leftKnee.y, rightKnee.y) - 22, label, jointVisualColor(LM.lk), true);
+  if (running && selectedGame === "squat" && gameState?.currentAction) {
+    const shoulders = [points.get(LM.ls), points.get(LM.rs)];
+    if (shoulders.every((point) => point?.v > .35)) {
+      const label = gameState.phase === "needStand"
+        ? "READY"
+        : gameState.matching ? `${Math.round((gameState.progress || 0) * 100)}% ✓` : gameState.currentAction.en.replace("!", "");
+      drawCanvasPill((shoulders[0].x + shoulders[1].x) / 2, Math.min(shoulders[0].y, shoulders[1].y) - 26, label, gameState.matching ? "#c8ff3d" : "#38f6ff", true);
     }
   }
   if (running && selectedGame === "jack") {
@@ -1266,7 +1578,7 @@ function drawTouchGame() {
 }
 
 function drawExerciseGame() {
-  const reps = gameState?.reps || 0;
+  const reps = selectedGame === "squat" ? (gameState?.completed || 0) : (gameState?.reps || 0);
   const color = selectedGame === "squat" ? "#c8ff3d" : "#ff3ea5";
   const x = viewW < 700 ? 70 : 110;
   const y = viewH * .56;
@@ -1289,16 +1601,16 @@ function drawExerciseGame() {
   ctx.shadowBlur = 0;
   ctx.fillStyle = "#fff";
   ctx.font = "700 11px IBM Plex Sans KR";
-  ctx.fillText(selectedGame === "squat" ? "SQUATS" : "STAR JUMPS", x, y + 24);
+  ctx.fillText(selectedGame === "squat" ? `MISSIONS / ${ACTION_COMMANDS.length}` : "STAR POSES", x, y + 24);
   if (selectedGame === "squat") {
-    const compactLandscape = viewH < 420 && viewW > viewH;
-    const barH = compactLandscape
-      ? Math.max(40, cameraRect.y + cameraRect.h - (y + 48) - 14)
-      : Math.min(220, viewH * .28);
-    ctx.strokeStyle = "#ffffff33";
-    ctx.strokeRect(x - 6, y + 48, 12, barH);
-    ctx.fillStyle = color;
-    ctx.fillRect(x - 5, y + 49 + barH * (1 - gameState.depth), 10, barH * gameState.depth);
+    const gap = viewW < 700 ? 12 : 16;
+    const start = x - (ACTION_COMMANDS.length - 1) * gap / 2;
+    for (let i = 0; i < ACTION_COMMANDS.length; i++) {
+      ctx.beginPath();
+      ctx.arc(start + i * gap, y + 48, i === gameState.commandIndex ? 5 : 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = i < gameState.completed ? "#c8ff3d" : i === gameState.commandIndex ? "#ffb15b" : "#ffffff55";
+      ctx.fill();
+    }
   } else {
     ctx.fillStyle = gameState.armsOpen ? "#c8ff3d" : "#ffb15b";
     ctx.fillText(gameState.armsOpen ? "OPEN ✓" : "팔 ·", x - 28, y + 54);
@@ -1526,7 +1838,7 @@ function render(now) {
     drawTrackingSignal(now);
     if (trackingPaused) drawTrackingPause();
     updateHUD();
-    if (gameElapsed >= games[selectedGame].ms) endGame();
+    if (gameElapsed >= games[selectedGame].ms && !gameState?.advancing) endGame();
   }
 
   if (running || calibrating || countdownActive) requestAnimationFrame(render);
@@ -1546,10 +1858,24 @@ function endGame() {
   try { speechSynthesis.cancel(); } catch {}
   hide(ui.cue, ui.demoHelp, ui.motionArt, ui.listen, ui.home);
   const total = hits + misses;
-  ui.resultTitle.textContent = "오늘도 정말 잘했어요!";
+  ui.resultTitle.textContent = completedRun ? "모든 미션을 완주했어요!" : "오늘도 정말 잘했어요!";
   ui.finalScore.textContent = `${hits}개`;
-  ui.accuracy.textContent = `${total}번`;
-  ui.maxCombo.textContent = maxCombo;
+  if (selectedGame === "sequence" || selectedGame === "math") {
+    ui.resultMetricLabel.textContent = "배운 영어";
+    ui.resultStreakLabel.textContent = "최고 연속";
+    ui.accuracy.textContent = `${completedWordCount}개`;
+    ui.maxCombo.textContent = maxCombo;
+  } else if (selectedGame === "squat") {
+    ui.resultMetricLabel.textContent = "완료한 동작";
+    ui.resultStreakLabel.textContent = "미션 목표";
+    ui.accuracy.textContent = `${gameState?.completed || 0}/${ACTION_COMMANDS.length}`;
+    ui.maxCombo.textContent = `${ACTION_COMMANDS.length}개`;
+  } else {
+    ui.resultMetricLabel.textContent = "도전 횟수";
+    ui.resultStreakLabel.textContent = "최고 연속";
+    ui.accuracy.textContent = `${total}번`;
+    ui.maxCombo.textContent = maxCombo;
+  }
   ui.grade.textContent = hits >= 8 ? "🏆" : hits >= 4 ? "🌟" : "🌈";
   wakeLock?.release?.().catch(() => {});
   tone(660, .18, "triangle", .08);
@@ -1592,9 +1918,7 @@ function demoExercise(game) {
   if (!running || !demo || selectedGame !== game || performance.now() < inputLockedUntil) return;
   inputLockedUntil = performance.now() + 220;
   if (game === "squat") {
-    if (gameState.phase === "needStand") gameState.phase = "ready";
-    else if (gameState.phase === "ready") { gameState.phase = "down"; showToast("UP! 다시 S를 눌러요"); speakEnglish("Stand up"); }
-    else completeSquatRep();
+    completeActionMission();
   } else {
     if (gameState.phase === "needClosed") gameState.phase = "ready";
     else if (gameState.phase === "ready") { gameState.phase = "open"; gameState.armsOpen = gameState.legsOpen = true; showToast("CLOSE! 다시 J"); speakEnglish("Close"); }
@@ -1604,7 +1928,9 @@ function demoExercise(game) {
 }
 
 app.addEventListener("click", (event) => {
-  if (!event.target.closest("button")) demoTouch(event.clientX, event.clientY);
+  if (event.target.closest("button")) return;
+  if (demo && running && (selectedGame === "squat" || selectedGame === "jack")) demoExercise(selectedGame);
+  else demoTouch(event.clientX, event.clientY);
 });
 
 addEventListener("keydown", (event) => {
@@ -1655,8 +1981,11 @@ $("#listenBtn").onclick = () => {
     sound = true;
     $("#soundBtn").classList.remove("off");
   }
+  if ((selectedGame === "sequence" || selectedGame === "math") && gameState?.answerRevealed) {
+    gameState.answerHoldUntil = performance.now() + 1100;
+  }
   if (!announceRound()) {
-    showToast("🔤 화면 글자를 소리 내어 읽어봐요!");
+    showToast("🔤 화면 안내를 함께 읽어봐요!");
     tone(540, .12, "triangle", .05);
   }
 };
@@ -1709,7 +2038,17 @@ function syntheticPose(preset) {
   set(LM.nose,.5,.10);set(LM.ls,.42,.27);set(LM.rs,.58,.27);set(LM.le,.40,.40);set(LM.re,.60,.40);
   set(LM.lh,.45,.51);set(LM.rh,.55,.51);set(LM.lk,.45,.70);set(LM.rk,.55,.70);set(LM.la,.45,.91);set(LM.ra,.55,.91);
   set(LM.lw,.42,.56);set(LM.rw,.58,.56);
-  if (preset === "squat") {
+  if (preset === "handsUp") {
+    set(LM.le,.38,.17);set(LM.re,.62,.17);set(LM.lw,.40,.06);set(LM.rw,.60,.06);
+  } else if (preset === "touchHead") {
+    set(LM.le,.34,.20);set(LM.lw,.48,.11);
+  } else if (preset === "airplane") {
+    set(LM.le,.31,.27);set(LM.re,.69,.27);set(LM.lw,.20,.28);set(LM.rw,.80,.28);
+  } else if (preset === "clap") {
+    set(LM.le,.35,.37);set(LM.re,.65,.37);set(LM.lw,.47,.38);set(LM.rw,.53,.38);
+  } else if (preset === "oneLeg") {
+    set(LM.rk,.60,.60);set(LM.ra,.60,.68);
+  } else if (preset === "squat") {
     set(LM.lh,.38,.60);set(LM.rh,.62,.60);set(LM.lk,.34,.72);set(LM.rk,.66,.72);set(LM.la,.45,.91);set(LM.ra,.55,.91);
   } else if (preset === "jackOpen") {
     set(LM.lw,.45,.07);set(LM.rw,.55,.07);set(LM.le,.33,.16);set(LM.re,.67,.16);set(LM.la,.25,.91);set(LM.ra,.75,.91);
@@ -1731,12 +2070,59 @@ function runEngineSelfTest() {
   const results = {};
   selfTesting = true;
   demo = true;
+  resetScore();
+  const sequenceWords = [];
+  for (let round = 1; round <= WORDS.length; round++) {
+    const state = createSequenceRound(round);
+    if (state) sequenceWords.push(state.prompt.word);
+  }
+  resetScore();
+  const pictureWords = [], pictureAnswers = [];
+  while (wordDeck.length >= 2) {
+    const state = createMathProblem();
+    pictureAnswers.push(state.answer);
+    pictureWords.push(...state.targets.map((target) => target.value));
+  }
+  results.noRepeat = {
+    pass: sequenceWords.length === WORDS.length && new Set(sequenceWords).size === WORDS.length
+      && pictureWords.length === WORDS.length && new Set(pictureWords).size === WORDS.length
+      && pictureAnswers.length === WORDS.length / 2 && new Set(pictureAnswers).size === pictureAnswers.length,
+    spelling: sequenceWords, pictureAnswers, shownPictureWords: pictureWords
+  };
   selectedGame = "sequence";resetScore();gameState=createGameState("sequence");const spellWord=gameState.prompt.word;completeSequenceTarget(gameState.targets.find((target)=>target.order===1));
   results.sequence = { pass: gameState.current === 2 && hits === 1 && feedbacks.at(-1)?.type === "good" && WORDS.some((item)=>item.word===spellWord), word:spellWord, current: gameState.current, hits, feedback: feedbacks.at(-1)?.detail };
   selectedGame = "math";resetScore();gameState=createGameState("math");completeMathTarget(gameState.targets.find((target)=>target.value===gameState.answer));
   results.math = { pass: hits === 1 && score > 0 && WORDS.some((item)=>feedbacks.at(-1)?.detail?.includes(item.word)), answer:feedbacks.at(-1)?.detail, hits, score, feedback: feedbacks.at(-1)?.detail };
-  selectedGame = "squat";resetScore();gameState=createGameState("squat");feedSyntheticPose("stand",10);const squatReady=gameState.phase;feedSyntheticPose("squat",10);const squatDown=gameState.phase;const squatDebug=squatFeatures(posePoints());feedSyntheticPose("stand",10);
-  results.squat = { pass: gameState.reps === 1 && feedbacks.at(-1)?.type === "good", reps: gameState.reps, phase: gameState.phase, ready:squatReady, down:squatDown, angle:Math.round(squatDebug.kneeAngle), feedback:feedbacks.at(-1)?.label };
+  selectedGame = "squat";resetScore();gameState=createGameState("squat");
+  const noHeadroom = syntheticPose("stand");
+  POSE_JOINTS.forEach((index) => noHeadroom[index].y -= .07);
+  lastPose = noHeadroom;lastWorldPose = noHeadroom;poseTimestamp = performance.now();
+  const headroomRejected = !analyzeFit().good;
+  const offFrameHands = syntheticPose("handsUp");
+  offFrameHands[LM.lw].y = offFrameHands[LM.rw].y = -.01;
+  lastPose = offFrameHands;lastWorldPose = offFrameHands;poseTimestamp = performance.now();
+  const offFramePoints = posePoints();
+  const offFrameMetric = actionMetrics(offFramePoints);
+  const offFramePoseUsable = poseUsable(poseTimestamp);
+  const offFrameHandsMatch = staticActionMatches(gameState.currentAction, offFramePoints, offFrameMetric, gameState);
+  activateActionCommand(gameState, 1);
+  const overheadV = syntheticPose("jackOpen");
+  lastPose = overheadV;lastWorldPose = overheadV;poseTimestamp = performance.now();
+  const overheadVPoints = posePoints();
+  const overheadVTouchHeadMatch = staticActionMatches(gameState.currentAction, overheadVPoints, actionMetrics(overheadVPoints), gameState);
+  results.actionNegatives = {
+    pass: headroomRejected && !offFramePoseUsable && !offFrameHandsMatch && !overheadVTouchHeadMatch,
+    headroomRejected, offFramePoseUsable, offFrameHandsMatch, overheadVTouchHeadMatch
+  };
+  selectedGame = "squat";resetScore();gameState=createGameState("squat");const actionOrder=[];
+  while (!gameState.sessionComplete && actionOrder.length <= ACTION_COMMANDS.length) {
+    const actionId = gameState.currentAction.id;
+    actionOrder.push(actionId);
+    if (actionId === "oneLeg") { feedSyntheticPose("stand", 12); feedSyntheticPose("oneLeg", 16); }
+    else if (actionId === "squat") { feedSyntheticPose("stand", 12); feedSyntheticPose("squat", 12); feedSyntheticPose("stand", 12); }
+    else feedSyntheticPose(actionId, 16);
+  }
+  results.squat = { pass: gameState.completed === ACTION_COMMANDS.length && gameState.sessionComplete && new Set(actionOrder).size === ACTION_COMMANDS.length, completed:gameState.completed, order:actionOrder, feedback:feedbacks.at(-1)?.label };
   selectedGame = "jack";resetScore();gameState=createGameState("jack");feedSyntheticPose("stand",10);feedSyntheticPose("jackOpen",10);feedSyntheticPose("stand",10);
   results.jack = { pass: gameState.reps === 1 && feedbacks.at(-1)?.type === "good", reps: gameState.reps, phase: gameState.phase, feedback:feedbacks.at(-1)?.label };
   running = false;demo = false;selectedGame = "math";gameState = null;resetScore();selfTesting = false;
