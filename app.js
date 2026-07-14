@@ -21,7 +21,13 @@ const CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35";
 const MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 const LM = { nose: 0, ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16, lh: 23, rh: 24, lk: 25, rk: 26, la: 27, ra: 28 };
 const SKELETON = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+const POSE_JOINTS = [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra];
+const ARM_JOINTS = new Set([LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw]);
+const LEG_JOINTS = new Set([LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
+const MAJOR_JOINTS = new Set([LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
 const SLOT_POSITIONS = [[.18,.30],[.50,.25],[.82,.30],[.20,.53],[.80,.53],[.24,.76],[.50,.72],[.76,.76]];
+const LANDSCAPE_SLOT_POSITIONS = [[.12,.52],[.37,.52],[.63,.52],[.88,.52],[.20,.78],[.50,.78],[.80,.78]];
+const LANDSCAPE_MATH_POSITIONS = [[.15,.54],[.50,.54],[.85,.54],[.30,.78],[.70,.78]];
 
 const games = {
   sequence: { name: "ORDER TOUCH", ms: 60000, image: "assets/game-sequence.webp", fullBody: false, description: "1번부터 차례대로 찾아 손으로 터치하세요." },
@@ -59,6 +65,8 @@ let cameraRect = { x: 0, y: 0, w: 1, h: 1 };
 let playRect = { x: 0, y: 0, w: 1, h: 1 };
 let viewW = innerWidth, viewH = innerHeight;
 let particles = [], ripples = [];
+let feedbacks = [];
+let wristTrails = { [LM.lw]: [], [LM.rw]: [] };
 let inputLockedUntil = 0;
 let cameraAttemptId = 0;
 let countdownAttemptId = 0;
@@ -100,6 +108,8 @@ function updateCameraGeometry() {
   const w = sourceW * scale, h = sourceH * scale;
   cameraRect = { x: stage.x + (stage.w - w) / 2, y: stage.y + (stage.h - h) / 2, w, h };
   playRect = { x: cameraRect.x + cameraRect.w * .07, y: cameraRect.y + cameraRect.h * .08, w: cameraRect.w * .86, h: cameraRect.h * .86 };
+  app.style.setProperty("--camera-left", `${cameraRect.x}px`);
+  app.classList.toggle("side-calibration", viewW > viewH && cameraRect.x - stage.x >= 60);
 }
 
 addEventListener("resize", resize);
@@ -379,6 +389,8 @@ function resetScore() {
   inputLockedUntil = 0;
   particles = [];
   ripples = [];
+  feedbacks = [];
+  wristTrails = { [LM.lw]: [], [LM.rw]: [] };
 }
 
 function beginGame() {
@@ -401,7 +413,8 @@ function createGameState(game) {
 
 function createSequenceRound(round) {
   const count = Math.min(7, 4 + Math.floor((round - 1) / 2));
-  const slots = shuffle(SLOT_POSITIONS).slice(0, count);
+  const availableSlots = viewH < 420 && viewW > viewH ? LANDSCAPE_SLOT_POSITIONS : SLOT_POSITIONS;
+  const slots = shuffle(availableSlots).slice(0, count);
   return {
     mode: "sequence", round, current: 1, inputReady: false, clearMs: 0,
     targets: slots.map(([x, y], index) => ({ value: index + 1, x, y, dwell: 0, flashUntil: 0 }))
@@ -421,7 +434,10 @@ function createMathProblem() {
     if (values.size === 3) break;
   }
   while (values.size < 3) values.add((answer + values.size + 1) % 100);
-  const slots = shuffle([[.20,.38],[.80,.38],[.50,.70],[.22,.72],[.78,.72]]).slice(0, 3);
+  const mathPositions = viewH < 420 && viewW > viewH
+    ? LANDSCAPE_MATH_POSITIONS
+    : [[.20,.38],[.80,.38],[.50,.70],[.22,.72],[.78,.72]];
+  const slots = shuffle(mathPositions).slice(0, 3);
   return {
     mode: "math", a, b, answer, inputReady: false, clearMs: 0, startedAt: gameElapsed,
     targets: shuffle([...values]).map((value, index) => ({ value, x: slots[index][0], y: slots[index][1], dwell: 0, flashUntil: 0 }))
@@ -435,6 +451,7 @@ function targetPoint(target) {
 function targetRadius() {
   const points = posePoints();
   const shoulder = points ? distance(points.ls, points.rs) : playRect.w * .2;
+  if (viewH < 420 && viewW > viewH) return clamp(shoulder * .34, 28, 34);
   const minimum = viewW < 700 ? clamp(playRect.w * .105, 26, 38) : 44;
   const maximum = viewW < 700 ? clamp(playRect.w * .16, 34, 58) : Math.min(76, playRect.w * .16);
   return clamp(shoulder * .38, minimum, Math.max(minimum, maximum));
@@ -492,22 +509,40 @@ function updateTouchReadiness(state, hands, radius, dt) {
   return state.inputReady;
 }
 
-function award(points, x, y, label = "PERFECT") {
+function enqueueFeedback(type, x, y, label, gain = 0, detail = "") {
+  const now = performance.now();
+  const compactLandscape = viewH < 420 && viewW > viewH;
+  feedbacks = [{
+    type, x, y, label, gain, detail, mode: selectedGame, startedAt: now,
+    duration: compactLandscape ? (type === "good" ? 320 : 280) : (type === "good" ? 420 : 340),
+    radius: compactLandscape
+      ? clamp(targetRadius() * .72, 22, 27)
+      : clamp(targetRadius() * .82, 26, viewW < 700 ? 44 : 56)
+  }];
+}
+
+function award(points, x, y, label = "PERFECT", detail = "") {
   hits++;
   combo++;
   maxCombo = Math.max(maxCombo, combo);
   const gain = points + Math.min(combo, 10) * 10;
   score += gain;
   burst(x, y, selectedGame === "math" ? "#ff3ea5" : "#38f6ff");
-  showToast(`${label}  +${gain}`);
+  enqueueFeedback("good", x, y, label, gain, detail);
+  ui.toast.textContent = `${label} +${gain}`;
+  ui.toast.classList.remove("show");
+  if (combo > 0 && combo % 5 === 0) showToast(`${combo} COMBO!`);
+  try { if (!demo) navigator.vibrate?.(18); } catch {}
   tone(520 + Math.min(combo, 12) * 28, .1, "triangle", .07);
+  return gain;
 }
 
-function penalty(label = "다시!") {
+function penalty(label = "다시!", x = null, y = null) {
   misses++;
   combo = 0;
   score = Math.max(0, score - 30);
-  showToast(label, true);
+  if (Number.isFinite(x) && Number.isFinite(y)) enqueueFeedback("bad", x, y, label, -30);
+  else showToast(label, true);
   tone(115, .14, "sawtooth", .025);
 }
 
@@ -521,9 +556,9 @@ function showToast(text, bad = false) {
 
 function completeSequenceTarget(target) {
   const point = targetPoint(target);
-  award(100, point.x, point.y, `${target.value}번 성공`);
+  award(100, point.x, point.y, `${target.value}번 정답`, `ORDER ${target.value} ✓`);
   gameState.current++;
-  inputLockedUntil = performance.now() + 180;
+  inputLockedUntil = performance.now() + (viewH < 420 && viewW > viewH ? 300 : 280);
   gameState.inputReady = false;
   gameState.clearMs = 0;
   gameState.targets.forEach((item) => item.dwell = 0);
@@ -540,15 +575,15 @@ function completeMathTarget(target) {
   const point = targetPoint(target);
   if (target.value !== gameState.answer) {
     target.flashUntil = performance.now() + 500;
-    penalty("오답! 다시 계산");
+    penalty("오답! 다시 계산", point.x, point.y);
     inputLockedUntil = performance.now() + 250;
     gameState.inputReady = false;
     gameState.clearMs = 0;
     return;
   }
   const responseBonus = Math.max(0, 100 - Math.floor((gameElapsed - gameState.startedAt) / 40));
-  award(140 + responseBonus, point.x, point.y, "정답");
-  inputLockedUntil = performance.now() + 250;
+  award(140 + responseBonus, point.x, point.y, `${target.value} 정답`, `${gameState.a} + ${gameState.b} = ${gameState.answer} ✓`);
+  inputLockedUntil = performance.now() + (viewH < 420 && viewW > viewH ? 300 : 340);
   gameState = createMathProblem();
   updateGameCue();
 }
@@ -568,7 +603,7 @@ function updateTouchGame(dt) {
       if (target.value === gameState.current) completeSequenceTarget(target);
       else {
         target.flashUntil = performance.now() + 450;
-        penalty(`${gameState.current}번부터!`);
+        penalty(`${gameState.current}번부터!`, point.x, point.y);
         inputLockedUntil = performance.now() + 220;
         gameState.inputReady = false;
         gameState.clearMs = 0;
@@ -588,9 +623,28 @@ function squatFeatures(points) {
   return { kneeAngle, hipY, torso };
 }
 
+function exerciseFeedbackPoint(yRatio = .5) {
+  const points = posePoints();
+  const visible = points ? Object.values(points).filter((point) => point?.v > .38) : [];
+  const inset = viewW < 700 ? 74 : 90;
+  let x = cameraRect.x + inset;
+  if (visible.length) {
+    const minX = Math.min(...visible.map((point) => point.x));
+    const maxX = Math.max(...visible.map((point) => point.x));
+    const leftSpace = minX - cameraRect.x;
+    const rightSpace = cameraRect.x + cameraRect.w - maxX;
+    x = leftSpace >= rightSpace
+      ? cameraRect.x + clamp(leftSpace * .5, inset, cameraRect.w * .28)
+      : cameraRect.x + cameraRect.w - clamp(rightSpace * .5, inset, cameraRect.w * .28);
+  }
+  return { x, y: cameraRect.y + cameraRect.h * yRatio };
+}
+
 function completeSquatRep() {
   gameState.reps++;
-  award(140, cameraRect.x + cameraRect.w / 2, cameraRect.y + cameraRect.h * .65, `${gameState.reps}회`);
+  const point = exerciseFeedbackPoint(.63);
+  const angleLabel = `${Math.round((gameState.kneeAngle || 0) / 5) * 5}°`;
+  award(140, point.x, point.y, `${gameState.reps}회 스쿼트`, `무릎 ${angleLabel} · PERFECT`);
   gameState.phase = "ready";
   gameState.stableMs = 0;
 }
@@ -635,7 +689,8 @@ function jackFeatures(points) {
 
 function completeJackRep() {
   gameState.reps++;
-  award(160, cameraRect.x + cameraRect.w / 2, cameraRect.y + cameraRect.h * .42, `${gameState.reps}회`);
+  const point = exerciseFeedbackPoint(.44);
+  award(160, point.x, point.y, `${gameState.reps}회 성공`, "팔·다리 COMPLETE ✓");
   gameState.phase = "ready";
   gameState.stableMs = 0;
 }
@@ -762,51 +817,233 @@ function drawBackground() {
   }
 }
 
-function drawPose() {
-  if (!lastPose || demo) return;
+function poseIsFresh(now = performance.now()) {
+  return !!lastPose && now - poseTimestamp <= 550;
+}
+
+function landmarkSignal(index) {
+  const landmark = lastPose?.[index];
+  return landmark ? clamp(Math.min(landmark.visibility ?? 1, landmark.presence ?? 1), 0, 1) : 0;
+}
+
+function focusJointSet() {
+  if (selectedGame === "sequence" || selectedGame === "math") return new Set([LM.lw, LM.rw]);
+  if (selectedGame === "squat") return new Set([LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
+  return new Set([LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
+}
+
+function jointVisualColor(index, signal = landmarkSignal(index)) {
+  if (signal < .35) return "#8c879b";
+  if (signal < .58) return "#ffb15b";
+  if (selectedGame === "sequence" || selectedGame === "math") {
+    if (index === LM.lw) return "#38f6ff";
+    if (index === LM.rw) return "#ff3ea5";
+  }
+  if (selectedGame === "squat" && (LEG_JOINTS.has(index) || index === LM.ls || index === LM.rs)) {
+    if (gameState?.phase === "down" || (gameState?.depth ?? 0) >= .72) return "#c8ff3d";
+    if ((gameState?.depth ?? 0) >= .42) return "#ffb15b";
+    return "#38f6ff";
+  }
+  if (selectedGame === "jack") {
+    const confirmedOpen = gameState?.phase === "open";
+    if (ARM_JOINTS.has(index)) return confirmedOpen && gameState?.armsOpen ? "#c8ff3d" : "#ffb15b";
+    if (LEG_JOINTS.has(index)) return confirmedOpen && gameState?.legsOpen ? "#c8ff3d" : "#8a5cff";
+  }
+  return "#dce7ef";
+}
+
+function drawCanvasPill(cx, cy, text, color = "#38f6ff", small = false) {
   ctx.save();
-  ctx.lineWidth = viewW < 700 ? 2 : 3;
-  ctx.strokeStyle = "#bafcffcc";
-  ctx.shadowBlur = 12;
-  ctx.shadowColor = "#38f6ff";
+  ctx.font = `700 ${small ? 9 : viewW < 700 ? 11 : 12}px IBM Plex Sans KR`;
+  const width = clamp(ctx.measureText(text).width + (small ? 14 : 20), 44, viewW < 700 ? 150 : 190);
+  const height = small ? 20 : 26;
+  const x = clamp(cx - width / 2, cameraRect.x + 7, cameraRect.x + cameraRect.w - width - 7);
+  const y = clamp(cy - height / 2, cameraRect.y + 7, cameraRect.y + cameraRect.h - height - 7);
+  const cut = 6;
+  ctx.beginPath();
+  ctx.moveTo(x + cut, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width, y + height - cut);
+  ctx.lineTo(x + width - cut, y + height); ctx.lineTo(x, y + height); ctx.lineTo(x, y + cut); ctx.closePath();
+  ctx.fillStyle = "#05040bdd";
+  ctx.strokeStyle = `${color}bb`;
+  ctx.lineWidth = 1;
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x + width / 2, y + height / 2 + .5, width - 10);
+  ctx.restore();
+}
+
+function drawPose(now = performance.now()) {
+  if (!poseIsFresh(now) || demo) return;
+  const focus = focusJointSet();
+  const points = new Map(POSE_JOINTS.map((index) => [index, posePoint(index)]));
+  const baseWidth = viewW < 700 ? 2 : 3;
+  ctx.save();
+
+  ctx.beginPath();
   for (const [a, b] of SKELETON) {
-    const p = posePoint(a), q = posePoint(b);
-    if (p?.v > .35 && q?.v > .35) {
-      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+    const p = points.get(a), q = points.get(b);
+    if (p?.v < .35 || q?.v < .35) continue;
+    ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y);
+  }
+  ctx.strokeStyle = "#dce7ef73";
+  ctx.lineWidth = baseWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.stroke();
+
+  for (const [a, b] of SKELETON) {
+    if (!focus.has(a) || !focus.has(b)) continue;
+    const p = points.get(a), q = points.get(b);
+    if (p?.v < .35 || q?.v < .35) continue;
+    const signal = Math.min(landmarkSignal(a), landmarkSignal(b));
+    const color = jointVisualColor(b, signal);
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y);
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = clamp((signal - .25) / .5, .35, 1);
+    ctx.lineWidth = baseWidth + 1.5;
+    ctx.stroke();
+  }
+
+  for (const index of POSE_JOINTS) {
+    const point = points.get(index);
+    const signal = landmarkSignal(index);
+    if (!point || signal < .28) continue;
+    const isHand = index === LM.lw || index === LM.rw;
+    const isFocus = focus.has(index);
+    const radius = isHand ? (viewW < 700 ? 6.5 : 8.5) : MAJOR_JOINTS.has(index) ? (viewW < 700 ? 4 : 5) : (viewW < 700 ? 3 : 4);
+    const color = jointVisualColor(index, signal);
+    ctx.globalAlpha = isHand ? 1 : isFocus ? .88 : clamp((signal - .25) / .65, .4, .68);
+    ctx.shadowBlur = isFocus ? (isHand ? 8 : 5) : 0;
+    ctx.shadowColor = color;
+    ctx.fillStyle = "#05040b";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = isFocus ? 2.2 : 1.4;
+    ctx.beginPath(); ctx.arc(point.x, point.y, radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    if (isFocus) {
+      ctx.globalAlpha *= .45;
+      ctx.beginPath(); ctx.arc(point.x, point.y, radius + 3.5, 0, Math.PI * 2); ctx.stroke();
     }
   }
-  [LM.lw, LM.rw].forEach((index, side) => {
-    const point = posePoint(index);
-    if (!point || point.v < .35) return;
-    ctx.fillStyle = side ? "#ff3ea5" : "#38f6ff";
-    ctx.beginPath(); ctx.arc(point.x, point.y, targetRadius() * .16, 0, Math.PI * 2); ctx.fill();
-  });
   ctx.restore();
+
+  if (running && selectedGame === "squat" && Number.isFinite(gameState?.kneeAngle)) {
+    const leftKnee = points.get(LM.lk), rightKnee = points.get(LM.rk);
+    if (leftKnee?.v > .35 && rightKnee?.v > .35) {
+      const label = `${Math.round(gameState.kneeAngle / 5) * 5}°`;
+      drawCanvasPill((leftKnee.x + rightKnee.x) / 2, Math.min(leftKnee.y, rightKnee.y) - 22, label, jointVisualColor(LM.lk), true);
+    }
+  }
+  if (running && selectedGame === "jack") {
+    const wrists = [points.get(LM.lw), points.get(LM.rw)], ankles = [points.get(LM.la), points.get(LM.ra)];
+    if (gameState?.phase === "open" && gameState?.armsOpen && wrists.every((point) => point?.v > .35)) {
+      drawCanvasPill((wrists[0].x + wrists[1].x) / 2, Math.min(wrists[0].y, wrists[1].y) - 18, "팔 OPEN ✓", "#c8ff3d", true);
+    }
+    if (gameState?.phase === "open" && gameState?.legsOpen && ankles.every((point) => point?.v > .35)) {
+      drawCanvasPill((ankles[0].x + ankles[1].x) / 2, Math.max(ankles[0].y, ankles[1].y) + 18, "다리 OPEN ✓", "#c8ff3d", true);
+    }
+  }
+}
+
+function drawHandCursors(now = performance.now()) {
+  if (!running || demo || !poseIsFresh(now) || !poseUsable(now) || (selectedGame !== "sequence" && selectedGame !== "math")) return;
+  const hitRadius = targetRadius();
+  for (const [index, baseColor] of [[LM.lw, "#38f6ff"], [LM.rw, "#ff3ea5"]]) {
+    const point = posePoint(index);
+    if (!point || point.v < .38) continue;
+    const trail = wristTrails[index];
+    const last = trail[trail.length - 1];
+    if (!last || distance(last, point) > 2 || now - last.t > 42) trail.push({ x: point.x, y: point.y, t: now });
+    wristTrails[index] = trail.filter((sample) => now - sample.t < 330).slice(-10);
+    const touching = !!gameState?.inputReady && gameState?.targets?.some((target) => {
+      if (selectedGame === "sequence" && target.value !== gameState.current) return false;
+      return distance(point, targetPoint(target)) <= hitRadius;
+    });
+    const color = touching ? "#ffb15b" : baseColor;
+    ctx.save();
+    const samples = wristTrails[index];
+    for (let i = 1; i < samples.length; i++) {
+      const alpha = i / samples.length * .3;
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = 1 + i / samples.length * 2;
+      ctx.beginPath(); ctx.moveTo(samples[i - 1].x, samples[i - 1].y); ctx.lineTo(samples[i].x, samples[i].y); ctx.stroke();
+    }
+    const radius = viewW < 700 ? 10 : 12;
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = color;
+    ctx.beginPath(); ctx.arc(point.x, point.y, radius, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(point.x, point.y, radius + 4 + Math.sin(now / 90) * 1.5, -.35, Math.PI * 1.25); ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(point.x, point.y, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+function trackingSignal() {
+  if (!lastPose) return 0;
+  if (selectedGame === "sequence" || selectedGame === "math") {
+    const core = requiredIndices(selectedGame).map(landmarkSignal);
+    return Math.min(...core, Math.max(landmarkSignal(LM.lw), landmarkSignal(LM.rw)));
+  }
+  return Math.min(...requiredIndices(selectedGame).map(landmarkSignal));
+}
+
+function drawTrackingSignal(now = performance.now()) {
+  if (demo || !poseIsFresh(now)) return;
+  const signal = trackingSignal();
+  const color = signal >= .65 ? "#c8ff3d" : signal >= .38 ? "#ffb15b" : "#ff6b7f";
+  drawCanvasPill(cameraRect.x + cameraRect.w - 48, cameraRect.y + 17, `TRACK ${Math.round(signal * 100)}%`, color, true);
 }
 
 function drawTargetCircle(target, active = true) {
   const point = targetPoint(target);
   const radius = targetRadius();
-  const wrong = performance.now() < target.flashUntil;
-  const color = wrong ? "#ff4f70" : active ? "#38f6ff" : "#5d5969";
+  const now = performance.now();
+  const wrong = now < target.flashUntil;
+  const locked = gameState?.inputReady === false && !wrong;
+  const progress = clamp((target.dwell || 0) / 75, 0, 1);
+  const color = wrong ? "#ff4f70" : locked ? "#777283" : active ? (progress > .55 ? "#c8ff3d" : "#38f6ff") : "#5d5969";
+  const shake = wrong ? Math.sin((target.flashUntil - now) / 24) * Math.min(6, (target.flashUntil - now) / 50) : 0;
   ctx.save();
-  ctx.translate(point.x, point.y);
-  ctx.shadowBlur = active ? 24 : 0;
+  ctx.translate(point.x + shake, point.y);
+  ctx.shadowBlur = active && !locked ? (viewW < 700 ? 14 : 20) : 0;
   ctx.shadowColor = color;
   ctx.fillStyle = `${color}22`;
   ctx.strokeStyle = color;
   ctx.lineWidth = active ? 4 : 2;
+  if (locked) ctx.setLineDash([6, 6]);
   ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  if (active) {
-    ctx.globalAlpha = .45 + .25 * Math.sin(performance.now() / 120);
+  ctx.setLineDash([]);
+  if (active && !locked) {
+    ctx.globalAlpha = .4 + .22 * Math.sin(now / 120);
     ctx.beginPath(); ctx.arc(0, 0, radius + 8, 0, Math.PI * 2); ctx.stroke();
+  }
+  if (active && progress > 0) {
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = "#c8ff3d";
+    ctx.lineWidth = 5;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.arc(0, 0, radius + 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+    ctx.stroke();
   }
   ctx.globalAlpha = 1;
   ctx.fillStyle = wrong ? "#ff8c9d" : "#fff";
   ctx.font = `700 ${Math.round(radius * .72)}px IBM Plex Sans KR`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(target.value, 0, 1);
+  if (wrong) {
+    ctx.fillText("×", 0, 1);
+    ctx.font = `700 ${Math.round(radius * .38)}px IBM Plex Sans KR`;
+    ctx.fillText(target.value, 0, radius * .48);
+  } else ctx.fillText(target.value, 0, 1);
   ctx.restore();
 }
 
@@ -818,10 +1055,21 @@ function drawTouchGame() {
     if (!completed) drawTargetCircle(target, active);
     else {
       const point = targetPoint(target);
-      ctx.fillStyle = "#c8ff3d";
-      ctx.font = "700 24px IBM Plex Sans KR";
+      const radius = targetRadius() * .48;
+      ctx.save();
+      ctx.fillStyle = "#c8ff3d22";
+      ctx.strokeStyle = "#c8ff3d";
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(point.x, point.y, radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#fff";
+      ctx.font = `700 ${Math.round(radius * .9)}px IBM Plex Sans KR`;
       ctx.textAlign = "center";
-      ctx.fillText("✓", point.x, point.y + 8);
+      ctx.textBaseline = "middle";
+      ctx.fillText(target.value, point.x, point.y + 1);
+      ctx.fillStyle = "#c8ff3d";
+      ctx.font = `700 ${Math.round(radius * .68)}px IBM Plex Sans KR`;
+      ctx.fillText("✓", point.x + radius * .7, point.y - radius * .65);
+      ctx.restore();
     }
   }
 }
@@ -831,28 +1079,40 @@ function drawExerciseGame() {
   const color = selectedGame === "squat" ? "#c8ff3d" : "#ff3ea5";
   const x = viewW < 700 ? 70 : 110;
   const y = viewH * .56;
+  const now = performance.now();
+  let repScale = 1;
+  for (let index = feedbacks.length - 1; index >= 0; index--) {
+    const feedback = feedbacks[index];
+    if (feedback.type !== "good" || feedback.mode !== selectedGame) continue;
+    const progress = (now - feedback.startedAt) / feedback.duration;
+    if (progress >= 0 && progress < 1) repScale += Math.sin(progress * Math.PI) * .18;
+    break;
+  }
   ctx.save();
   ctx.textAlign = "center";
   ctx.fillStyle = color;
   ctx.shadowBlur = 20;
   ctx.shadowColor = color;
-  ctx.font = `700 ${viewW < 700 ? 54 : 80}px IBM Plex Sans KR`;
+  ctx.font = `700 ${(viewW < 700 ? 54 : 80) * repScale}px IBM Plex Sans KR`;
   ctx.fillText(reps, x, y);
   ctx.shadowBlur = 0;
   ctx.fillStyle = "#fff";
   ctx.font = "700 11px IBM Plex Sans KR";
   ctx.fillText("REPS", x, y + 24);
   if (selectedGame === "squat") {
-    const barH = Math.min(220, viewH * .28);
+    const compactLandscape = viewH < 420 && viewW > viewH;
+    const barH = compactLandscape
+      ? Math.max(40, cameraRect.y + cameraRect.h - (y + 48) - 14)
+      : Math.min(220, viewH * .28);
     ctx.strokeStyle = "#ffffff33";
     ctx.strokeRect(x - 6, y + 48, 12, barH);
     ctx.fillStyle = color;
     ctx.fillRect(x - 5, y + 49 + barH * (1 - gameState.depth), 10, barH * gameState.depth);
   } else {
-    ctx.fillStyle = gameState.armsOpen ? "#c8ff3d" : "#6f6979";
-    ctx.fillText("팔", x - 24, y + 54);
-    ctx.fillStyle = gameState.legsOpen ? "#c8ff3d" : "#6f6979";
-    ctx.fillText("다리", x + 24, y + 54);
+    ctx.fillStyle = gameState.armsOpen ? "#c8ff3d" : "#ffb15b";
+    ctx.fillText(gameState.armsOpen ? "팔 ✓" : "팔 ·", x - 28, y + 54);
+    ctx.fillStyle = gameState.legsOpen ? "#c8ff3d" : "#8a5cff";
+    ctx.fillText(gameState.legsOpen ? "다리 ✓" : "다리 ·", x + 30, y + 54);
   }
   ctx.restore();
 }
@@ -867,26 +1127,161 @@ function drawCalibrationGuide() {
   ctx.restore();
 }
 
-function drawEffects() {
+function drawFeedbackCard(feedback, ringRadius, alpha) {
+  const compactLandscape = viewH < 420 && viewW > viewH;
+  const color = feedback.type === "good" ? "#c8ff3d" : "#ff4f70";
+  const title = compactLandscape && feedback.detail
+    ? `✓ ${feedback.detail}  +${feedback.gain}`
+    : feedback.type === "good" ? `✓ ${feedback.label}  +${feedback.gain}` : `× ${feedback.label}`;
+  const detail = compactLandscape ? "" : feedback.detail || (feedback.type === "bad" ? "-30 POINT" : "");
+  const titleSize = compactLandscape ? 12 : viewW < 700 ? 14 : 17;
+  const detailSize = viewW < 700 ? 9 : 10;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = `700 ${titleSize}px IBM Plex Sans KR`;
+  const titleWidth = ctx.measureText(title).width;
+  ctx.font = `700 ${detailSize}px IBM Plex Sans KR`;
+  const detailWidth = detail ? ctx.measureText(detail).width : 0;
+  const maxWidth = Math.max(92, cameraRect.w - 20);
+  const width = clamp(Math.max(titleWidth, detailWidth) + (compactLandscape ? 18 : 24), 96, Math.min(compactLandscape ? 168 : viewW < 700 ? 220 : 280, maxWidth));
+  const height = compactLandscape ? 27 : detail ? 43 : 31;
+  const above = feedback.y > cameraRect.y + cameraRect.h * .38;
+  const desiredY = above ? feedback.y - ringRadius - height - 12 : feedback.y + ringRadius + 12;
+  const x = clamp(feedback.x - width / 2, cameraRect.x + 10, cameraRect.x + cameraRect.w - width - 10);
+  const y = clamp(desiredY, cameraRect.y + 34, cameraRect.y + cameraRect.h - height - 10);
+  const cut = 8;
+  ctx.beginPath();
+  ctx.moveTo(x + cut, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width, y + height - cut);
+  ctx.lineTo(x + width - cut, y + height); ctx.lineTo(x, y + height); ctx.lineTo(x, y + cut); ctx.closePath();
+  ctx.fillStyle = "#05040be8";
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = `${color}88`;
+  ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = color;
+  ctx.font = `700 ${titleSize}px IBM Plex Sans KR`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(title, x + width / 2, y + (detail ? 15 : height / 2), width - 12);
+  if (detail) {
+    ctx.fillStyle = "#f6f4ff";
+    ctx.font = `700 ${detailSize}px IBM Plex Sans KR`;
+    ctx.fillText(detail, x + width / 2, y + 31, width - 12);
+  }
+  ctx.restore();
+}
+
+function drawFeedbacks(now = performance.now()) {
+  const compactLandscape = viewH < 420 && viewW > viewH;
+  const newestGood = [...feedbacks].reverse().find((feedback) => feedback.type === "good");
+  if (newestGood) {
+    const flashAge = now - newestGood.startedAt;
+    if (flashAge >= 0 && flashAge < 190) {
+      const alpha = (1 - flashAge / 190) * .09;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "#c8ff3d";
+      ctx.fillRect(cameraRect.x, cameraRect.y, cameraRect.w, cameraRect.h);
+      ctx.globalAlpha = alpha * 5;
+      ctx.strokeStyle = "#c8ff3d";
+      ctx.lineWidth = viewW < 700 ? 4 : 6;
+      ctx.shadowBlur = 18;
+      ctx.shadowColor = "#c8ff3d";
+      ctx.strokeRect(cameraRect.x + 3, cameraRect.y + 3, cameraRect.w - 6, cameraRect.h - 6);
+      ctx.restore();
+    }
+  }
+
+  for (const feedback of feedbacks) {
+    const progress = clamp((now - feedback.startedAt) / feedback.duration, 0, 1);
+    if (progress >= 1) continue;
+    const color = feedback.type === "good" ? "#c8ff3d" : "#ff4f70";
+    const fade = progress < .72 ? 1 : 1 - (progress - .72) / .28;
+    const expansion = 1 - Math.pow(1 - progress, 3);
+    const radius = feedback.radius * (1 + expansion * .5);
+    ctx.save();
+    ctx.translate(feedback.x, feedback.y);
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = `${color}24`;
+    ctx.lineWidth = feedback.type === "good" ? 4 : 3;
+    ctx.shadowBlur = viewW < 700 ? 10 : 16;
+    ctx.shadowColor = color;
+    ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.globalAlpha = fade * .5;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, radius + 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = fade;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = viewW < 700 ? 6 : 8;
+    ctx.beginPath();
+    if (feedback.type === "good") {
+      ctx.moveTo(-radius * .34, 0); ctx.lineTo(-radius * .08, radius * .25); ctx.lineTo(radius * .38, -radius * .27);
+    } else {
+      ctx.moveTo(-radius * .25, -radius * .25); ctx.lineTo(radius * .25, radius * .25);
+      ctx.moveTo(radius * .25, -radius * .25); ctx.lineTo(-radius * .25, radius * .25);
+    }
+    ctx.stroke();
+    ctx.restore();
+    if (compactLandscape) {
+      ctx.save();
+      ctx.globalAlpha = fade;
+      ctx.fillStyle = color;
+      ctx.font = "700 10px IBM Plex Sans KR";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(
+        feedback.type === "good" ? `+${feedback.gain}` : "-30",
+        feedback.x,
+        feedback.y + radius * .55
+      );
+      ctx.restore();
+    } else {
+      drawFeedbackCard(feedback, radius, fade);
+    }
+  }
+  feedbacks = feedbacks.filter((feedback) => now - feedback.startedAt < feedback.duration);
+}
+
+function drawEffects(frameDt = 16, now = performance.now()) {
+  ctx.save();
+  drawFeedbacks(now);
+  const frameScale = clamp(frameDt / 16.67, 0, 3);
   particles.forEach((particle) => {
-    particle.x += particle.vx; particle.y += particle.vy; particle.vx *= .96; particle.vy *= .96; particle.life -= .035;
+    particle.x += particle.vx * frameScale; particle.y += particle.vy * frameScale;
+    particle.vx *= Math.pow(.96, frameScale); particle.vy *= Math.pow(.96, frameScale);
+    particle.life -= frameDt / 450;
     ctx.globalAlpha = Math.max(0, particle.life); ctx.fillStyle = particle.color; ctx.fillRect(particle.x, particle.y, 3, 3);
   });
   particles = particles.filter((particle) => particle.life > 0);
   ripples.forEach((ripple) => {
-    ripple.r += 9; ripple.alpha -= .055; ctx.globalAlpha = Math.max(0, ripple.alpha); ctx.strokeStyle = ripple.color; ctx.lineWidth = 4;
+    ripple.r = Math.min(ripple.maxR || 100, ripple.r + 9 * frameScale);
+    ripple.alpha -= frameDt / 320;
+    ctx.globalAlpha = Math.max(0, ripple.alpha); ctx.strokeStyle = ripple.color; ctx.lineWidth = 4;
     ctx.beginPath(); ctx.arc(ripple.x, ripple.y, ripple.r, 0, Math.PI * 2); ctx.stroke();
   });
   ripples = ripples.filter((ripple) => ripple.alpha > 0);
   ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function burst(x, y, color) {
-  ripples.push({ x, y, r: 8, alpha: 1, color });
-  for (let i = 0; i < 22; i++) {
+  const compactLandscape = viewH < 420 && viewW > viewH;
+  ripples.push({
+    x, y, r: 8,
+    maxR: compactLandscape ? clamp(targetRadius() * 1.35, 34, 40) : clamp(targetRadius() * 1.7, 50, 92),
+    alpha: 1, color
+  });
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const count = viewW < 700 ? 10 : 16;
+  for (let i = 0; i < count; i++) {
     const angle = Math.random() * Math.PI * 2, speed = 2 + Math.random() * 7;
     particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 1, color });
   }
+  particles = particles.slice(-(viewW < 700 ? 48 : 96));
 }
 
 function drawTrackingPause() {
@@ -908,12 +1303,13 @@ function render(now) {
   lastFrameAt = now;
   drawBackground();
   if (!demo) detectPose(now);
-  drawPose();
+  drawPose(now);
   drawCalibrationGuide();
   if (calibrating) updateCalibration(now);
 
   if (running) {
     const usable = demo || poseUsable(now);
+    let trackingPaused = false;
     if (usable) {
       gameElapsed += frameDt;
       if (demo || poseVersion !== evaluatedPoseVersion) {
@@ -925,10 +1321,13 @@ function render(now) {
       setTracking(demo ? "체험 모드" : "동작 인식 중", "good");
     } else {
       setTracking("몸 전체를 보여주세요", "warn");
-      drawTrackingPause();
+      trackingPaused = true;
     }
     if (selectedGame === "sequence" || selectedGame === "math") drawTouchGame(); else drawExerciseGame();
-    drawEffects();
+    drawHandCursors(now);
+    drawEffects(frameDt, now);
+    drawTrackingSignal(now);
+    if (trackingPaused) drawTrackingPause();
     updateHUD();
     if (gameElapsed >= games[selectedGame].ms) endGame();
   }
@@ -983,7 +1382,8 @@ function demoTouch(x, y) {
     if (target.value === gameState.current) completeSequenceTarget(target);
     else {
       inputLockedUntil = performance.now() + 220;
-      penalty(`${gameState.current}번부터!`);
+      const point = targetPoint(target);
+      penalty(`${gameState.current}번부터!`, point.x, point.y);
     }
   } else completeMathTarget(target);
 }
@@ -1016,7 +1416,8 @@ addEventListener("keydown", (event) => {
       if (value === gameState.current) completeSequenceTarget(target);
       else {
         inputLockedUntil = performance.now() + 220;
-        penalty(`${gameState.current}번부터!`);
+        const point = targetPoint(target);
+        penalty(`${gameState.current}번부터!`, point.x, point.y);
       }
     }
   } else if (selectedGame === "math" && event.code === "Enter") {
@@ -1074,7 +1475,13 @@ window.__MOTION_TEST__ = {
     else demoExercise(selectedGame);
     return this.snapshot();
   },
-  snapshot() { return { game: selectedGame, score, combo, hits, misses, elapsed: gameElapsed, state: JSON.parse(JSON.stringify(gameState)) }; },
+  snapshot() {
+    return {
+      game: selectedGame, score, combo, hits, misses, elapsed: gameElapsed,
+      feedback: feedbacks.map(({ type, label, gain, detail }) => ({ type, label, gain, detail })),
+      state: JSON.parse(JSON.stringify(gameState))
+    };
+  },
   finish() { endGame(); return this.snapshot(); }
 };
 
@@ -1106,13 +1513,13 @@ function runEngineSelfTest() {
   const results = {};
   demo = true;
   selectedGame = "sequence";resetScore();gameState=createGameState("sequence");completeSequenceTarget(gameState.targets.find((target)=>target.value===1));
-  results.sequence = { pass: gameState.current === 2 && hits === 1, current: gameState.current, hits };
+  results.sequence = { pass: gameState.current === 2 && hits === 1 && feedbacks.at(-1)?.type === "good", current: gameState.current, hits, feedback: feedbacks.at(-1)?.label };
   selectedGame = "math";resetScore();gameState=createGameState("math");completeMathTarget(gameState.targets.find((target)=>target.value===gameState.answer));
-  results.math = { pass: hits === 1 && score > 0, hits, score };
+  results.math = { pass: hits === 1 && score > 0 && feedbacks.at(-1)?.detail?.includes("="), hits, score, feedback: feedbacks.at(-1)?.detail };
   selectedGame = "squat";resetScore();gameState=createGameState("squat");feedSyntheticPose("stand",10);const squatReady=gameState.phase;feedSyntheticPose("squat",10);const squatDown=gameState.phase;const squatDebug=squatFeatures(posePoints());feedSyntheticPose("stand",10);
-  results.squat = { pass: gameState.reps === 1, reps: gameState.reps, phase: gameState.phase, ready:squatReady, down:squatDown, angle:Math.round(squatDebug.kneeAngle) };
+  results.squat = { pass: gameState.reps === 1 && feedbacks.at(-1)?.type === "good", reps: gameState.reps, phase: gameState.phase, ready:squatReady, down:squatDown, angle:Math.round(squatDebug.kneeAngle), feedback:feedbacks.at(-1)?.label };
   selectedGame = "jack";resetScore();gameState=createGameState("jack");feedSyntheticPose("stand",10);feedSyntheticPose("jackOpen",10);feedSyntheticPose("stand",10);
-  results.jack = { pass: gameState.reps === 1, reps: gameState.reps, phase: gameState.phase };
+  results.jack = { pass: gameState.reps === 1 && feedbacks.at(-1)?.type === "good", reps: gameState.reps, phase: gameState.phase, feedback:feedbacks.at(-1)?.label };
   running = false;demo = false;selectedGame = "sequence";gameState = null;resetScore();
   results.pass = Object.values(results).every((item) => item?.pass !== false);
   window.__MOTION_SELFTEST__ = results;
