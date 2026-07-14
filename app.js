@@ -32,7 +32,10 @@ const TOUCH_DWELL_MS = 140;
 const TOUCH_REARM_MS = 90;
 const SPELLING_GOAL = 10;
 const PICTURE_GOAL = 10;
-const FLIGHT_STAR_GOAL = 10;
+const FLIGHT_WORD_GOAL = 10;
+const FLIGHT_GATE_SPEED = .15;
+const FLIGHT_GATE_PREVIEW_MS = 900;
+const FLIGHT_POSE_FRESH_MS = 180;
 const WORDS = [
   { word: "CAT", emoji: "🐱", ko: "고양이" },
   { word: "DOG", emoji: "🐶", ko: "강아지" },
@@ -73,7 +76,7 @@ const games = {
   sequence: { name: "SPELL POP · 10 WORDS", ms: 100000, image: "assets/kid-spell-pop-v1.webp", fullBody: false, description: "한국어 그림 힌트를 보고 서로 다른 영어 단어 10개의 철자를 완성해요." },
   math: { name: "PICTURE PICK · 10 WORDS", ms: 90000, image: "assets/kid-picture-pick-v1.webp", fullBody: false, description: "한국어 문제 10개를 듣고 알맞은 영어 단어를 손으로 골라요." },
   squat: { name: "LISTEN & MOVE · 10 MISSIONS", ms: 130000, image: "assets/kid-action-missions-v2.webp", fullBody: true, description: "서로 다른 영어 동작 10개를 듣고 차례로 따라 해요." },
-  jack: { name: "FLAP & FLY · 10 STARS", ms: 70000, image: "assets/kid-flap-flight-v1.webp", fullBody: false, description: "양팔을 함께 위아래로 펄럭여 하늘을 날고 별 10개를 모아요." }
+  jack: { name: "WORD WINGS · 10 WORDS", ms: 100000, image: "assets/kid-flap-flight-v1.webp", fullBody: false, description: "한국어 문제를 듣고 위·아래 영어 구름 중 정답으로 날아가요." }
 };
 
 let selectedGame = "math";
@@ -144,6 +147,13 @@ function withObjectParticle(word) {
   const last = value.charCodeAt(value.length - 1) || 0;
   const hasFinalConsonant = last >= 0xAC00 && last <= 0xD7A3 && (last - 0xAC00) % 28 !== 0;
   return `${value}${hasFinalConsonant ? "을" : "를"}`;
+}
+
+function withTopicParticle(word) {
+  const value = word || "";
+  const last = value.charCodeAt(value.length - 1) || 0;
+  const hasFinalConsonant = last >= 0xAC00 && last <= 0xD7A3 && (last - 0xAC00) % 28 !== 0;
+  return `${value}${hasFinalConsonant ? "은" : "는"}`;
 }
 
 function speakText(text, lang, interrupt = false, onDone = null) {
@@ -217,9 +227,16 @@ function setTracking(text, state = "") {
   ui.tracking.querySelector("span").textContent = text;
 }
 
-function setCue(title, detail = "") {
-  ui.cue.querySelector("strong").textContent = title;
-  ui.cue.querySelector("span").textContent = detail;
+function setCue(title, detail = "", accessibleLabel = "") {
+  const heading = ui.cue.querySelector("strong");
+  const description = ui.cue.querySelector("span");
+  if (heading.textContent !== title) heading.textContent = title;
+  if (description.textContent !== detail) description.textContent = detail;
+  if (accessibleLabel) {
+    if (ui.cue.getAttribute("aria-label") !== accessibleLabel) ui.cue.setAttribute("aria-label", accessibleLabel);
+  } else if (ui.cue.hasAttribute("aria-label")) {
+    ui.cue.removeAttribute("aria-label");
+  }
 }
 
 function tone(frequency = 440, duration = .08, type = "sine", volume = .05) {
@@ -551,7 +568,11 @@ function rearmGameInput() {
     gameState.inputValid = false;
     gameState.wingsUp = false;
     gameState.wingsDown = false;
-    gameState.velocity = Math.max(gameState.velocity || 0, .06);
+    gameState.velocity = 0;
+    gameState.trackingReadyMs = 0;
+    gameState.laneCandidate = null;
+    gameState.laneHoldMs = 0;
+    gameState.stableLane = null;
   }
   updateGameCue();
 }
@@ -579,7 +600,8 @@ function announceRound() {
     return speakKorean(`${withObjectParticle(gameState.prompt.ko)} 찾으세요.`, true);
   }
   if (selectedGame === "squat") return speakEnglish(gameState.currentAction?.en || "Let's move!", true);
-  return speakEnglish("Flap your arms! Fly up!", true);
+  if (gameState.answerRevealed) return speakEnglish(gameState.prompt.word.toLowerCase(), true);
+  return speakKorean(`${withTopicParticle(gameState.prompt.ko)} 영어로 무엇일까요? 정답 영어 구름으로 날아가세요.`, true);
 }
 
 function scheduleRoundAnnouncement(delay = 0) {
@@ -906,13 +928,64 @@ function createActionGame() {
 }
 
 function createFlightGame() {
-  return {
+  const state = {
     mode: "flight", phase: "needUp", phaseMs: 0, strokeMs: 0, invalidMs: 0,
     upWingY: null, sinceFlapMs: Infinity, inputValid: false,
     wingsUp: false, wingsDown: false, stars: 0, flaps: 0, reps: 0,
-    flightY: .68, bestAltitude: .32, velocity: 0, wingEnergy: 0,
+    flightY: .52, bestAltitude: .48, velocity: 0, wingEnergy: 0,
+    round: 0, prompt: null, answer: "", choices: [], answerLane: null,
+    gateX: .82, previousGateX: .82, gatePhase: "approach", previewMs: FLIGHT_GATE_PREVIEW_MS,
+    retryMs: 0, laneCandidate: null, laneHoldMs: 0, stableLane: null,
+    wrongLane: null, wrongFlashUntil: 0, missedLanes: [], selectedLane: null, answerRevealed: false,
+    trackingReadyMs: 0,
     sessionComplete: false, advancing: false
   };
+  activateFlightQuestion(state, 1);
+  return state;
+}
+
+function flightFlyerRatio() {
+  return viewW < 700 ? .32 : .36;
+}
+
+function flightLaneY(lane) {
+  return lane === "high" ? .34 : .70;
+}
+
+function resetFlightGate(state, previewMs = FLIGHT_GATE_PREVIEW_MS) {
+  state.gateX = .82;
+  state.previousGateX = .82;
+  state.gatePhase = "approach";
+  state.previewMs = previewMs;
+  state.retryMs = 0;
+  state.laneCandidate = null;
+  state.laneHoldMs = 0;
+  state.stableLane = null;
+  state.wrongLane = null;
+  state.wrongFlashUntil = 0;
+  state.selectedLane = null;
+}
+
+function activateFlightQuestion(state, round) {
+  if (!state || round > FLIGHT_WORD_GOAL || wordDeck.length < 2) return false;
+  const prompt = nextWord();
+  const distractor = nextWord();
+  if (!prompt || !distractor) return false;
+  const values = shuffle([prompt.word, distractor.word]);
+  state.round = round;
+  state.prompt = prompt;
+  state.answer = prompt.word;
+  state.choices = [
+    { lane: "high", word: values[0] },
+    { lane: "low", word: values[1] }
+  ];
+  state.answerLane = state.choices.find((choice) => choice.word === state.answer)?.lane || "high";
+  state.missedLanes = [];
+  state.answerRevealed = false;
+  state.advancing = false;
+  resetFlightStroke(state);
+  resetFlightGate(state);
+  return true;
 }
 
 function activateActionCommand(state, index) {
@@ -1190,27 +1263,148 @@ function resetFlightStroke(state = gameState) {
   state.wingsDown = false;
 }
 
-function collectFlightStar() {
+function applyFlightImpulse() {
   const state = gameState;
-  if (!state || state.advancing || state.sessionComplete || state.stars >= FLIGHT_STAR_GOAL) return;
-  state.stars++;
+  if (!state || state.advancing || state.sessionComplete) return;
   state.flaps++;
-  state.reps = state.stars;
-  state.flightY = Math.max(.12, state.flightY - .055);
+  state.flightY = Math.max(.12, state.flightY - .07);
   state.bestAltitude = Math.max(state.bestAltitude || 0, 1 - state.flightY);
-  state.velocity = Math.max(-.34, Math.min(state.velocity, .02) - .20);
+  state.velocity = Math.max(-.36, Math.min(state.velocity, .02) - .24);
   state.wingEnergy = 1;
   state.sinceFlapMs = 0;
   resetFlightStroke(state);
-  const point = {
-    x: cameraRect.x + cameraRect.w * .68,
-    y: cameraRect.y + cameraRect.h * clamp(state.flightY, .18, .82)
+  tone(430, .06, "triangle", .025);
+  updateGameCue();
+}
+
+function flightChoicePoint(lane) {
+  return {
+    x: cameraRect.x + cameraRect.w * flightFlyerRatio(),
+    y: cameraRect.y + cameraRect.h * flightLaneY(lane)
   };
-  award(160, point.x, point.y, `STAR ${state.stars}!`, `날갯짓 성공 · ${state.stars}/${FLIGHT_STAR_GOAL}`);
-  if (state.stars >= FLIGHT_STAR_GOAL) {
-    finishRunSoon(`🎉 하늘 별 ${FLIGHT_STAR_GOAL}개!`, "양팔 날갯짓으로 멋지게 날았어요", 1050);
-  } else {
+}
+
+function transitionAfterFlightAnswer(completedWord) {
+  const answeredState = gameState;
+  answeredState.answerRevealed = true;
+  answeredState.advancing = true;
+  answeredState.gatePhase = "answer";
+  answeredState.velocity = 0;
+  inputLockedUntil = Infinity;
+  updateGameCue();
+  const token = ++speechRoundToken;
+  answeredState.answerHoldUntil = performance.now() + 1100;
+  let finished = false;
+  const advance = () => {
+    if (finished || token !== speechRoundToken || gameState !== answeredState || !answeredState.answerRevealed) return;
+    finished = true;
+    if (answeredState.stars >= FLIGHT_WORD_GOAL) {
+      finishRunSoon(`🎉 영어 단어 ${FLIGHT_WORD_GOAL}개!`, "날갯짓으로 정답 구름을 모두 찾았어요", 1050);
+      return;
+    }
+    if (!activateFlightQuestion(answeredState, answeredState.round + 1)) {
+      finishRunSoon("🎉 모든 단어를 만났어요!", `${completedWordCount}개의 영어를 배웠어요`);
+      return;
+    }
+    inputLockedUntil = performance.now() + 180;
     updateGameCue();
+    scheduleRoundAnnouncement(240);
+  };
+  if (selfTesting) { advance(); return; }
+  const advanceAfterMinimum = () => {
+    const wait = answeredState.answerHoldUntil - performance.now();
+    if (wait > 0) setTimeout(advance, wait);
+    else advance();
+  };
+  const spoken = speakEnglish(completedWord.word.toLowerCase(), true, advanceAfterMinimum);
+  setTimeout(advanceAfterMinimum, spoken ? 1550 : 1100);
+}
+
+function completeFlightAnswer(lane) {
+  const state = gameState;
+  if (!state || state.advancing || state.sessionComplete || state.stars >= FLIGHT_WORD_GOAL) return false;
+  const completedWord = state.prompt;
+  state.selectedLane = lane;
+  state.answerRevealed = true;
+  state.gatePhase = "answer";
+  state.stars++;
+  state.reps = state.stars;
+  completedWordCount++;
+  const point = flightChoicePoint(lane);
+  award(180, point.x, point.y, `${completedWord.word} 정답!`, `${completedWord.emoji} ${completedWord.ko} = ${completedWord.word}`);
+  transitionAfterFlightAnswer(completedWord);
+  return true;
+}
+
+function beginFlightRetry(lane, countedMiss) {
+  const state = gameState;
+  if (!state || state.gatePhase !== "approach") return false;
+  state.gatePhase = "retry";
+  state.retryMs = 700;
+  state.selectedLane = lane;
+  state.wrongLane = lane;
+  state.wrongFlashUntil = performance.now() + 700;
+  const point = flightChoicePoint(lane || (state.flightY < .5 ? "high" : "low"));
+  const newWrongLane = countedMiss && lane && !state.missedLanes.includes(lane);
+  if (newWrongLane) {
+    state.missedLanes.push(lane);
+    penalty("다른 영어 구름으로!", point.x, point.y, 0);
+  } else if (countedMiss) showToast("같은 문제예요 · 반대쪽 영어 구름으로!", true);
+  else showToast("위나 아래 구름 높이에 맞춰요", true);
+  updateGameCue();
+  return false;
+}
+
+function resolveFlightChoice(lane) {
+  const state = gameState;
+  if (!state || state.gatePhase !== "approach" || state.advancing || state.sessionComplete) return false;
+  if (!lane) return beginFlightRetry(null, false);
+  if (lane !== state.answerLane) return beginFlightRetry(lane, true);
+  return completeFlightAnswer(lane);
+}
+
+function updateFlightLane(dt) {
+  const state = gameState;
+  if (!state) return;
+  let candidate = null;
+  if (state.laneCandidate === "high" && state.flightY <= .46) candidate = "high";
+  else if (state.laneCandidate === "low" && state.flightY >= .54) candidate = "low";
+  else if (state.flightY <= .42) candidate = "high";
+  else if (state.flightY >= .58) candidate = "low";
+  if (candidate !== state.laneCandidate) {
+    state.laneCandidate = candidate;
+    state.laneHoldMs = candidate ? dt : 0;
+  } else if (candidate) {
+    state.laneHoldMs += dt;
+  } else {
+    state.laneHoldMs = 0;
+  }
+  state.stableLane = candidate && state.laneHoldMs >= 180 ? candidate : null;
+}
+
+function updateFlightGate(frameDt, controlReady) {
+  const state = gameState;
+  if (!state || !controlReady || state.advancing || state.sessionComplete) return;
+  updateFlightLane(frameDt);
+  if (state.gatePhase === "retry") {
+    state.retryMs -= frameDt;
+    if (state.retryMs <= 0) {
+      resetFlightGate(state, 650);
+      updateGameCue();
+    }
+    return;
+  }
+  if (state.gatePhase !== "approach") return;
+  if (state.previewMs > 0) {
+    state.previewMs -= frameDt;
+    return;
+  }
+  state.previousGateX = state.gateX;
+  state.gateX -= FLIGHT_GATE_SPEED * (frameDt / 1000);
+  const flyerRatio = flightFlyerRatio();
+  if (state.previousGateX > flyerRatio && state.gateX <= flyerRatio) {
+    state.gateX = flyerRatio;
+    resolveFlightChoice(state.stableLane);
   }
 }
 
@@ -1246,7 +1440,7 @@ function updateFlightInput(dt) {
       && state.strokeMs <= 1400 && state.sinceFlapMs >= 280;
     state.phaseMs = downStroke ? state.phaseMs + dt : Math.max(0, state.phaseMs - dt * 2);
     if (state.strokeMs > 1400) resetFlightStroke(state);
-    else if (state.phaseMs >= 120) collectFlightStar();
+    else if (state.phaseMs >= 120) applyFlightImpulse();
   }
   updateGameCue();
 }
@@ -1255,23 +1449,40 @@ function updateFlightPhysics(frameDt, now = performance.now()) {
   const state = gameState;
   if (selectedGame !== "jack" || !state || state.sessionComplete) return;
   const dt = clamp(frameDt, 0, 50) / 1000;
-  const inputValid = demo || (poseIsFresh(now) && flightFrameUsable());
+  const inputValid = demo || (!!lastPose && now - poseTimestamp <= FLIGHT_POSE_FRESH_MS && flightFrameUsable());
   if (!inputValid) {
     state.inputValid = false;
+    state.trackingReadyMs = 0;
+    state.laneCandidate = null;
+    state.laneHoldMs = 0;
+    state.stableLane = null;
     state.invalidMs += frameDt;
     if (state.invalidMs >= 220) resetFlightStroke(state);
-  } else if (state.inputValid) {
-    state.invalidMs = 0;
+    state.velocity = 0;
+    state.wingEnergy = Math.max(0, state.wingEnergy - dt * 1.8);
+    return;
   }
-  if (state.sinceFlapMs > 380) state.velocity = Math.max(state.velocity, 0);
-  if (!inputValid) state.velocity = Math.max(state.velocity, .06);
-  const gravity = inputValid ? .32 : .48;
-  state.velocity = clamp(state.velocity + gravity * dt, -.34, .20);
+  state.trackingReadyMs = Math.min(1000, state.trackingReadyMs + frameDt);
+  const controlReady = demo || state.trackingReadyMs >= 300;
+  if (!controlReady) {
+    state.velocity = 0;
+    state.wingEnergy = Math.max(0, state.wingEnergy - dt * 1.8);
+    return;
+  }
+  if (state.inputValid) state.invalidMs = 0;
+  if (state.advancing) {
+    state.velocity = 0;
+    state.wingEnergy = Math.max(0, state.wingEnergy - dt * 1.8);
+    return;
+  }
+  if (state.sinceFlapMs > 650) state.velocity = Math.max(state.velocity, 0);
+  state.velocity = clamp(state.velocity + .26 * dt, -.36, .18);
   state.flightY = clamp(state.flightY + state.velocity * dt, .12, .88);
   state.bestAltitude = Math.max(state.bestAltitude || 0, 1 - state.flightY);
   if (state.flightY >= .88 && state.velocity > 0) state.velocity = 0;
   if (state.flightY <= .12 && state.velocity < 0) state.velocity = 0;
   state.wingEnergy = Math.max(0, state.wingEnergy - dt * 1.8);
+  updateFlightGate(frameDt, true);
 }
 
 function updateGame(dt) {
@@ -1309,14 +1520,21 @@ function updateGameCue() {
     else if (action.id === "squat" && gameState.phase === "down") hint = "UP! 다시 일어나요";
     setCue(`${gameState.completed + 1}/${gameState.commands.length} · ${action.emoji} ${action.en}`, hint);
   } else {
-    if (gameState.advancing || gameState.sessionComplete) {
-      setCue(`⭐ ALL STARS! · ${gameState.stars}/${FLIGHT_STAR_GOAL}`, "날갯짓 비행을 완주했어요!");
+    if (gameState.answerRevealed) {
+      setCue(`${gameState.prompt.emoji} ${gameState.prompt.ko} = ${gameState.prompt.word} ✓`, `같이 말해요 · ${gameState.prompt.word}`);
       return;
     }
-    const hint = gameState.phase === "needDown"
-      ? "DOWN! 양팔을 아래로 크게 펄럭여요"
-      : "UP! 양팔을 크게 올려요 · 멈추면 내려가요";
-    setCue(`🪽 FLAP YOUR ARMS! · ${gameState.stars}/${FLIGHT_STAR_GOAL}`, hint);
+    if (gameState.sessionComplete) {
+      setCue(`⭐ WORD WINGS! · ${gameState.stars}/${FLIGHT_WORD_GOAL}`, "영어 단어 비행을 완주했어요!");
+      return;
+    }
+    const high = gameState.choices.find((choice) => choice.lane === "high")?.word || "";
+    const low = gameState.choices.find((choice) => choice.lane === "low")?.word || "";
+    const title = `${gameState.round}/${FLIGHT_WORD_GOAL} · ${gameState.prompt.emoji} ${withTopicParticle(gameState.prompt.ko)} 영어로?`;
+    let hint = gameState.phase === "needDown" ? "DOWN! 팔을 아래로 크게 펄럭여요" : "날갯짓하면 ↑ · 쉬면 ↓";
+    if (gameState.gatePhase === "retry") hint = "한 번 더! 정답 영어 구름을 찾아요";
+    const accessible = `${title} 위쪽 영어 단어 ${high}. 아래쪽 영어 단어 ${low}. ${hint}`;
+    setCue(title, hint, accessible);
   }
 }
 
@@ -1754,13 +1972,43 @@ function drawFlightCloud(x, y, size, alpha = .35) {
   ctx.restore();
 }
 
+function drawFlightWordGate(choice, centerX, centerY, width, height, state, now) {
+  const correct = state.answerRevealed && choice.lane === state.answerLane;
+  const wrong = choice.lane === state.wrongLane && now < state.wrongFlashUntil;
+  const selected = choice.lane === state.stableLane && state.gatePhase === "approach";
+  ctx.save();
+  ctx.shadowBlur = correct ? 22 : selected ? 14 : 9;
+  ctx.shadowColor = correct ? "#77df83" : wrong ? "#f2ad21" : choice.lane === "high" ? "#8d78ef" : "#31b88c";
+  roundedRectPath(centerX - width / 2, centerY - height / 2, width, height, Math.min(18, height * .32));
+  ctx.fillStyle = correct ? "#eaffd8f5" : wrong ? "#fff0cef5" : "#fffdf2f2";
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = correct ? "#39b96a" : wrong ? "#e59918" : choice.lane === "high" ? "#7562d8" : "#238c70";
+  ctx.lineWidth = selected || correct || wrong ? 5 : 3;
+  ctx.stroke();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = choice.lane === "high" ? "#5d4abf" : "#18725b";
+  ctx.font = `900 ${clamp(height * .20, 9, 12)}px Nunito`;
+  ctx.fillText(choice.lane === "high" ? "▲ HIGH" : "▼ LOW", centerX, centerY - height * .24);
+  ctx.fillStyle = "#263653";
+  ctx.font = `900 ${clamp(width * .22, 21, 31)}px Nunito`;
+  ctx.fillText(choice.word, centerX, centerY + height * .10);
+  if (correct) {
+    ctx.fillStyle = "#23955a";
+    ctx.font = `900 ${clamp(height * .34, 16, 23)}px Nunito`;
+    ctx.fillText("✓", centerX + width * .39, centerY - height * .27);
+  }
+  ctx.restore();
+}
+
 function drawFlightGame() {
   const state = gameState;
   if (!state) return;
   const { x, y, w, h } = cameraRect;
   const now = performance.now();
   const visualY = y + h * clamp(state.flightY, .18, .84);
-  const flyerX = x + w * (viewW < 700 ? .32 : .36);
+  const flyerX = x + w * flightFlyerRatio();
   const flyerSize = clamp(w * .15, 38, 68);
   const scroll = (gameElapsed * .025) % Math.max(1, w);
   ctx.save();
@@ -1781,6 +2029,19 @@ function drawFlightGame() {
     drawFlightCloud(cloudX, cloudY, clamp(w * (.07 + (i % 2) * .025), 24, 52), demo ? .66 : .30);
   }
 
+  ctx.save();
+  ctx.setLineDash([8, 9]);
+  ctx.lineWidth = 2;
+  for (const choice of state.choices) {
+    const laneY = y + h * flightLaneY(choice.lane);
+    ctx.strokeStyle = choice.lane === "high" ? "#806ce866" : "#36b88c66";
+    ctx.beginPath();
+    ctx.moveTo(x + w * .08, laneY);
+    ctx.lineTo(x + w * .96, laneY);
+    ctx.stroke();
+  }
+  ctx.restore();
+
   ctx.strokeStyle = "#ffd86b88";
   ctx.lineWidth = Math.max(4, flyerSize * .10);
   ctx.lineCap = "round";
@@ -1792,19 +2053,12 @@ function drawFlightGame() {
   ctx.lineWidth = Math.max(2, flyerSize * .05);
   ctx.stroke();
 
-  const starX = x + w * .74;
-  const starY = clamp(visualY + Math.sin(now / 260) * h * .05, y + h * .20, y + h * .78);
-  const starPulse = 1 + Math.sin(now / 150) * .12;
-  ctx.save();
-  ctx.translate(starX, starY);
-  ctx.scale(starPulse, starPulse);
-  ctx.shadowBlur = 18;
-  ctx.shadowColor = "#ffd94f";
-  ctx.font = `${clamp(w * .12, 34, 58)}px sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("⭐", 0, 0);
-  ctx.restore();
+  const gateX = x + w * state.gateX;
+  const gateWidth = clamp(w * .34, 96, 168);
+  const gateHeight = clamp(h * .115, 50, 66);
+  for (const choice of state.choices) {
+    drawFlightWordGate(choice, gateX, y + h * flightLaneY(choice.lane), gateWidth, gateHeight, state, now);
+  }
 
   ctx.save();
   ctx.translate(flyerX, visualY);
@@ -1835,19 +2089,19 @@ function drawFlightGame() {
   ctx.fillStyle = "#fff";
   ctx.shadowBlur = 18;
   ctx.shadowColor = "#ffcc42";
-  ctx.font = `700 ${viewW < 700 ? 46 : 68}px IBM Plex Sans KR`;
+  ctx.font = `700 ${viewW < 700 ? 34 : 50}px IBM Plex Sans KR`;
   ctx.fillText(state.stars, counterX, counterY);
   ctx.shadowBlur = 0;
   ctx.fillStyle = "#fff";
   ctx.font = "800 10px Nunito";
-  ctx.fillText(`STARS / ${FLIGHT_STAR_GOAL}`, counterX, counterY + 22);
+  ctx.fillText(`WORDS / ${FLIGHT_WORD_GOAL}`, counterX, counterY + 20);
 
   const gap = clamp(w * .042, 10, 16);
-  const dotsWidth = gap * (FLIGHT_STAR_GOAL - 1);
+  const dotsWidth = gap * (FLIGHT_WORD_GOAL - 1);
   const startX = x + w * .5 - dotsWidth / 2;
   const dotsY = y + h * .90;
   ctx.font = `${viewW < 700 ? 12 : 15}px sans-serif`;
-  for (let i = 0; i < FLIGHT_STAR_GOAL; i++) {
+  for (let i = 0; i < FLIGHT_WORD_GOAL; i++) {
     ctx.globalAlpha = i < state.stars ? 1 : .38;
     ctx.fillText(i < state.stars ? "★" : "☆", startX + i * gap, dotsY);
   }
@@ -2148,10 +2402,10 @@ function endGame() {
     ui.accuracy.textContent = `${gameState?.completed || 0}/${ACTION_COMMANDS.length}`;
     ui.maxCombo.textContent = `${ACTION_COMMANDS.length}개`;
   } else if (selectedGame === "jack") {
-    ui.resultMetricLabel.textContent = "최고 높이";
-    ui.resultStreakLabel.textContent = "별 목표";
-    ui.accuracy.textContent = `${Math.round((gameState?.bestAltitude || 0) * 100)}%`;
-    ui.maxCombo.textContent = `${FLIGHT_STAR_GOAL}개`;
+    ui.resultMetricLabel.textContent = "배운 영어";
+    ui.resultStreakLabel.textContent = "최고 높이";
+    ui.accuracy.textContent = `${gameState?.stars || 0}/${FLIGHT_WORD_GOAL}`;
+    ui.maxCombo.textContent = `${Math.round((gameState?.bestAltitude || 0) * 100)}%`;
   } else {
     ui.resultMetricLabel.textContent = "도전 횟수";
     ui.resultStreakLabel.textContent = "최고 연속";
@@ -2202,7 +2456,7 @@ function demoExercise(game) {
   if (game === "squat") {
     completeActionMission();
   } else {
-    collectFlightStar();
+    applyFlightImpulse();
   }
   updateGameCue();
 }
@@ -2261,7 +2515,7 @@ $("#listenBtn").onclick = () => {
     sound = true;
     $("#soundBtn").classList.remove("off");
   }
-  if ((selectedGame === "sequence" || selectedGame === "math") && gameState?.answerRevealed) {
+  if ((selectedGame === "sequence" || selectedGame === "math" || selectedGame === "jack") && gameState?.answerRevealed) {
     gameState.answerHoldUntil = performance.now() + 1100;
   }
   if (!announceRound()) {
@@ -2454,7 +2708,8 @@ function runEngineSelfTest() {
     pose[LM.rs].x = rightShoulderX;
     lastPose = pose;lastWorldPose = pose;poseTimestamp = performance.now();
     const points = posePoints();
-    const beforeFallY = gameState.flightY;
+    const beforeY = gameState.flightY;
+    const beforeGateX = gameState.gateX;
     const landmarkUsable = flightLandmarksUsable();
     const frameUsable = flightFrameUsable(points);
     const featureValid = flightFeatures(points).valid;
@@ -2463,43 +2718,117 @@ function runEngineSelfTest() {
     updateFlightPhysics(50, poseTimestamp);
     flightFrameNegatives[name] = {
       landmarkUsable, frameUsable, featureValid, poseUsable: usable,
-      inputValid: gameState.inputValid, fell: gameState.flightY > beforeFallY
+      inputValid: gameState.inputValid,
+      frozen: gameState.flightY === beforeY && gameState.gateX === beforeGateX
     };
   }
+  resetScore();gameState=createGameState("jack");
+  lastPose = syntheticPose("flightUp");lastWorldPose = lastPose;
+  const stalledNow = performance.now();
+  poseTimestamp = stalledNow - FLIGHT_POSE_FRESH_MS - 20;
+  gameState.inputValid = true;
+  gameState.trackingReadyMs = 1000;
+  gameState.previewMs = 0;
+  gameState.gateX = flightFlyerRatio() + .005;
+  gameState.previousGateX = gameState.gateX;
+  const stalledBefore = { y: gameState.flightY, gateX: gameState.gateX, stars: gameState.stars };
+  updateFlightPhysics(50, stalledNow);
+  const stalledPoseFrozen = gameState.flightY === stalledBefore.y && gameState.gateX === stalledBefore.gateX
+    && gameState.stars === stalledBefore.stars && !gameState.inputValid;
   demo = true;
   const rejectedFlightPoses = {};
   for (const preset of ["flightMid", "flightSingle", "flightTogether", "flightOffFrame"]) {
     resetScore();gameState=createGameState("jack");feedSyntheticPose(preset,20);
-    rejectedFlightPoses[preset] = gameState.stars;
+    rejectedFlightPoses[preset] = gameState.flaps;
   }
   resetScore();gameState=createGameState("jack");
   feedSyntheticPose("stand",12);
   feedSyntheticPose("flightUp",12);
-  const starsWhileHeldUp = gameState.stars;
+  const flapsWhileHeldUp = gameState.flaps;
   feedSyntheticPose("stand",10);
-  const starsAfterFirstFlap = gameState.stars;
+  const flapsAfterFirstStroke = gameState.flaps;
+  const starsAfterFirstStroke = gameState.stars;
   const beforeRiseY = gameState.flightY;
   for (let i = 0; i < 4; i++) updateFlightPhysics(50);
   const afterRiseY = gameState.flightY;
   feedSyntheticPose("stand",20);
-  const starsWhileHeldDown = gameState.stars;
+  const flapsWhileHeldDown = gameState.flaps;
   feedSyntheticPose("flightMid",20);
   for (let i = 0; i < 20; i++) updateFlightPhysics(50);
   const afterIdleFallY = gameState.flightY;
-  while (!gameState.sessionComplete && gameState.stars < FLIGHT_STAR_GOAL) {
-    feedSyntheticPose("flightUp",6);
-    feedSyntheticPose("stand",10);
+
+  resetScore();gameState=createGameState("jack");
+  const centerPrompt = gameState.prompt.word;
+  const centerDeckSize = wordDeck.length;
+  gameState.flightY = .50;
+  gameState.previewMs = 0;
+  gameState.gateX = flightFlyerRatio() + .005;
+  gameState.previousGateX = gameState.gateX;
+  const missesBeforeCenter = misses;
+  updateFlightGate(100, true);
+  const centerRetry = gameState.gatePhase === "retry" && gameState.stars === 0
+    && misses === missesBeforeCenter && gameState.prompt.word === centerPrompt && wordDeck.length === centerDeckSize;
+
+  resetScore();gameState=createGameState("jack");
+  const wrongPrompt = gameState.prompt.word;
+  const wrongDeckSize = wordDeck.length;
+  const wrongLane = gameState.answerLane === "high" ? "low" : "high";
+  const missesBeforeWrong = misses;
+  resolveFlightChoice(wrongLane);
+  resolveFlightChoice(wrongLane);
+  const wrongLocked = gameState.gatePhase === "retry" && gameState.stars === 0
+    && misses === missesBeforeWrong + 1 && gameState.prompt.word === wrongPrompt && wordDeck.length === wrongDeckSize;
+  updateFlightGate(700, true);
+  const retryRearmed = gameState.gatePhase === "approach" && gameState.prompt.word === wrongPrompt
+    && wordDeck.length === wrongDeckSize;
+  resolveFlightChoice(wrongLane);
+  const repeatedWrongNotCounted = misses === missesBeforeWrong + 1 && gameState.gatePhase === "retry";
+  updateFlightGate(700, true);
+
+  resetScore();gameState=createGameState("jack");
+  gameState.flightY = flightLaneY(gameState.answerLane);
+  gameState.laneCandidate = gameState.answerLane;
+  gameState.laneHoldMs = 180;
+  gameState.stableLane = gameState.answerLane;
+  gameState.previewMs = 0;
+  gameState.gateX = flightFlyerRatio() + .005;
+  gameState.previousGateX = gameState.gateX;
+  updateFlightGate(100, true);
+  const gateCrossedOnce = gameState.stars === 1 && hits === 1 && gameState.round === 2;
+
+  resetScore();gameState=createGameState("jack");
+  const flightPrompts = [];
+  const flightChoices = [];
+  const flightAnswerLanes = [];
+  while (!gameState.sessionComplete && flightPrompts.length < FLIGHT_WORD_GOAL) {
+    flightPrompts.push(gameState.prompt.word);
+    flightChoices.push(...gameState.choices.map((choice) => choice.word));
+    flightAnswerLanes.push(gameState.answerLane);
+    gameState.flightY = flightLaneY(gameState.answerLane);
+    gameState.laneCandidate = gameState.answerLane;
+    gameState.laneHoldMs = 180;
+    gameState.stableLane = gameState.answerLane;
+    gameState.previewMs = 0;
+    gameState.gateX = flightFlyerRatio() + .005;
+    gameState.previousGateX = gameState.gateX;
+    updateFlightGate(100, true);
   }
   results.flight = {
     pass: Object.values(flightFrameNegatives).every((item) => item.landmarkUsable
-        && !item.frameUsable && !item.featureValid && !item.poseUsable && !item.inputValid && item.fell)
+        && !item.frameUsable && !item.featureValid && !item.poseUsable && !item.inputValid && item.frozen)
       && Object.values(rejectedFlightPoses).every((count) => count === 0)
-      && starsWhileHeldUp === 0 && starsAfterFirstFlap === 1 && starsWhileHeldDown === 1
+      && flapsWhileHeldUp === 0 && flapsAfterFirstStroke === 1 && flapsWhileHeldDown === 1
+      && starsAfterFirstStroke === 0
       && afterRiseY < beforeRiseY && afterIdleFallY > afterRiseY
-      && gameState.stars === FLIGHT_STAR_GOAL && hits === FLIGHT_STAR_GOAL
+      && stalledPoseFrozen && centerRetry && wrongLocked && retryRearmed && repeatedWrongNotCounted && gateCrossedOnce
+      && flightPrompts.length === FLIGHT_WORD_GOAL && new Set(flightPrompts).size === FLIGHT_WORD_GOAL
+      && flightChoices.length === FLIGHT_WORD_GOAL * 2 && new Set(flightChoices).size === FLIGHT_WORD_GOAL * 2
+      && wordDeck.length === 0 && gameState.stars === FLIGHT_WORD_GOAL && hits === FLIGHT_WORD_GOAL
       && gameState.sessionComplete && completedRun,
-    flightFrameNegatives, rejectedFlightPoses, starsWhileHeldUp, starsAfterFirstFlap, starsWhileHeldDown,
-    beforeRiseY, afterRiseY, afterIdleFallY, stars:gameState.stars, phase:gameState.phase, feedback:feedbacks.at(-1)?.label
+    flightFrameNegatives, rejectedFlightPoses, flapsWhileHeldUp, flapsAfterFirstStroke,
+    flapsWhileHeldDown, starsAfterFirstStroke, beforeRiseY, afterRiseY, afterIdleFallY,
+    stalledPoseFrozen, centerRetry, wrongLocked, retryRearmed, repeatedWrongNotCounted, gateCrossedOnce, flightPrompts, flightChoices,
+    flightAnswerLanes, stars:gameState.stars, phase:gameState.phase, feedback:feedbacks.at(-1)?.label
   };
   running = false;demo = false;selectedGame = "math";gameState = null;resetScore();selfTesting = false;
   results.pass = Object.values(results).every((item) => item?.pass !== false);
