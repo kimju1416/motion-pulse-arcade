@@ -30,6 +30,9 @@ const MAJOR_JOINTS = new Set([LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, L
 const POSE_INFERENCE_INTERVAL = 60;
 const TOUCH_DWELL_MS = 140;
 const TOUCH_REARM_MS = 90;
+const SPELLING_GOAL = 10;
+const PICTURE_GOAL = 10;
+const FLIGHT_STAR_GOAL = 10;
 const WORDS = [
   { word: "CAT", emoji: "🐱", ko: "고양이" },
   { word: "DOG", emoji: "🐶", ko: "강아지" },
@@ -42,23 +45,35 @@ const WORDS = [
   { word: "BALL", emoji: "⚽", ko: "공" },
   { word: "BOOK", emoji: "📕", ko: "책" },
   { word: "TREE", emoji: "🌳", ko: "나무" },
-  { word: "DUCK", emoji: "🦆", ko: "오리" }
+  { word: "DUCK", emoji: "🦆", ko: "오리" },
+  { word: "APPLE", emoji: "🍎", ko: "사과" },
+  { word: "MOON", emoji: "🌙", ko: "달" },
+  { word: "BEAR", emoji: "🐻", ko: "곰" },
+  { word: "FROG", emoji: "🐸", ko: "개구리" },
+  { word: "CAKE", emoji: "🍰", ko: "케이크" },
+  { word: "SHOE", emoji: "👟", ko: "신발" },
+  { word: "CAR", emoji: "🚗", ko: "자동차" },
+  { word: "HAT", emoji: "🎩", ko: "모자" }
 ];
 
 const ACTION_COMMANDS = [
   { id: "handsUp", en: "Raise your hands!", ko: "두 손을 높이 들어요", emoji: "🙌", hold: 320, required: [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
   { id: "touchHead", en: "Touch your head!", ko: "한 손으로 머리를 톡", emoji: "👋", hold: 300, required: [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh], focus: [LM.nose, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "touchShoulders", en: "Touch your shoulders!", ko: "두 손으로 어깨를 톡", emoji: "🤗", hold: 300, required: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
   { id: "airplane", en: "Make an airplane!", ko: "양팔을 옆으로 쭉 펴요", emoji: "✈️", hold: 340, required: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
   { id: "clap", en: "Clap your hands!", ko: "두 손을 가슴 앞에서 모아요", emoji: "👏", hold: 220, required: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "handsOnHips", en: "Hands on your hips!", ko: "두 손을 허리에 올려요", emoji: "🕺", hold: 320, required: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh] },
   { id: "oneLeg", en: "Lift one foot!", ko: "벽을 잡고 한 발을 들어요", emoji: "🦩", hold: 440, required: [LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra], focus: [LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra] },
-  { id: "squat", en: "Squat down and stand up!", ko: "딱 한 번 앉았다 일어나요", emoji: "🪑", hold: 240, required: [LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra], focus: [LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra] }
+  { id: "touchKnees", en: "Touch your knees!", ko: "두 손으로 무릎을 톡", emoji: "🦵", hold: 380, required: [LM.ls, LM.rs, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra], focus: [LM.lw, LM.rw, LM.lk, LM.rk] },
+  { id: "squat", en: "Squat, then stand!", ko: "딱 한 번 앉았다 일어나요", emoji: "🪑", hold: 240, required: [LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra], focus: [LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra] },
+  { id: "leanSide", en: "Lean to the side!", ko: "양팔을 내리고 옆으로 기울여요", emoji: "🌴", hold: 360, required: [LM.ls, LM.rs, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra], focus: [LM.ls, LM.rs, LM.lw, LM.rw, LM.lh, LM.rh] }
 ];
 
 const games = {
-  sequence: { name: "SPELL POP", ms: 60000, image: "assets/kid-spell-pop-v1.webp", fullBody: false, description: "한국어 그림 힌트를 보고 영어 철자를 차례대로 완성해요." },
-  math: { name: "PICTURE PICK", ms: 60000, image: "assets/kid-picture-pick-v1.webp", fullBody: false, description: "한국어 문제를 듣고 알맞은 영어 단어를 손으로 골라요." },
-  squat: { name: "LISTEN & MOVE · 6 MISSIONS", ms: 80000, image: "assets/kid-action-missions-v2.webp", fullBody: true, description: "서로 다른 영어 동작 6개를 듣고 차례로 따라 해요." },
-  jack: { name: "MOVE & SAY · STAR POSE", ms: 45000, image: "assets/kid-star-jump-v1.webp", fullBody: true, description: "OPEN, CLOSE를 들으며 뛰지 않고 별처럼 활짝 펴요." }
+  sequence: { name: "SPELL POP · 10 WORDS", ms: 100000, image: "assets/kid-spell-pop-v1.webp", fullBody: false, description: "한국어 그림 힌트를 보고 서로 다른 영어 단어 10개의 철자를 완성해요." },
+  math: { name: "PICTURE PICK · 10 WORDS", ms: 90000, image: "assets/kid-picture-pick-v1.webp", fullBody: false, description: "한국어 문제 10개를 듣고 알맞은 영어 단어를 손으로 골라요." },
+  squat: { name: "LISTEN & MOVE · 10 MISSIONS", ms: 130000, image: "assets/kid-action-missions-v2.webp", fullBody: true, description: "서로 다른 영어 동작 10개를 듣고 차례로 따라 해요." },
+  jack: { name: "FLAP & FLY · 10 STARS", ms: 70000, image: "assets/kid-flap-flight-v1.webp", fullBody: false, description: "양팔을 함께 위아래로 펄럭여 하늘을 날고 별 10개를 모아요." }
 };
 
 let selectedGame = "math";
@@ -357,8 +372,9 @@ function beginCalibration() {
   hide(ui.countdown);
   calibrationGoodSince = null;
   ui.signal.style.width = "0%";
-  ui.calibrateTitle.textContent = games[selectedGame].fullBody ? "발목까지 보이게 뒤로 서세요" : "상체와 한 손을 보여주세요";
-  ui.calibrateDetail.textContent = games[selectedGame].fullBody ? "머리부터 발목까지 화면 안에 들어오면 바로 시작해요." : "머리·어깨와 한 손만 보여도 시작할 수 있어요.";
+  const flightGame = selectedGame === "jack";
+  ui.calibrateTitle.textContent = games[selectedGame].fullBody ? "발목까지 보이게 뒤로 서세요" : flightGame ? "상체와 두 손을 보여주세요" : "상체와 한 손을 보여주세요";
+  ui.calibrateDetail.textContent = games[selectedGame].fullBody ? "머리부터 발목까지 화면 안에 들어오면 바로 시작해요." : flightGame ? "두 팔을 펼쳐도 잘리지 않게 화면 가운데에 서요." : "머리·어깨와 한 손만 보여도 시작할 수 있어요.";
   show(ui.calibrate, ui.home);
   setTracking("몸 위치 확인 중", "warn");
 }
@@ -368,7 +384,7 @@ function requiredIndices(game = selectedGame, calibration = false) {
     if (!calibration && gameState?.currentAction?.required) return gameState.currentAction.required;
     return [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra];
   }
-  if (game === "jack") return [LM.nose, LM.ls, LM.rs, LM.lw, LM.rw, LM.lh, LM.rh, LM.la, LM.ra];
+  if (game === "jack") return [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh];
   const core = [LM.nose, LM.ls, LM.rs];
   return core;
 }
@@ -385,7 +401,8 @@ function landmarkInFrame(landmark, margin = .025) {
 
 function actionRequiredLandmarksUsable(action = gameState?.currentAction) {
   if (!action?.required?.length) return false;
-  const minimum = action.id === "oneLeg" || action.id === "squat" ? .40 : .38;
+  const lowerBodyAction = ["oneLeg", "touchKnees", "squat", "leanSide"].includes(action.id);
+  const minimum = lowerBodyAction ? .40 : .38;
   const margin = .01;
   return action.required.every((index) => {
     const landmark = lastPose?.[index];
@@ -399,9 +416,11 @@ function analyzeFit() {
   if (!lastPose || performance.now() - poseTimestamp > 550) return { good: false, title: "몸을 찾고 있어요", text: "카메라 정면에 서 주세요." };
   const needed = requiredIndices(selectedGame, true);
   const visibility = games[selectedGame].fullBody ? .40 : .36;
+  const flightGame = selectedGame === "jack";
   const handVisible = [LM.lw, LM.rw].some((index) => landmarkInFrame(lastPose[index]));
-  if (!needed.every((index) => landmarkVisible(lastPose[index], visibility)) || (!games[selectedGame].fullBody && !handVisible)) {
-    return { good: false, title: games[selectedGame].fullBody ? "발목까지 보여주세요" : "한 손을 흔들어 주세요", text: "카메라 정면에서 손을 들어 보여주세요." };
+  const bothFlightHandsVisible = [LM.lw, LM.rw].every((index) => landmarkInFrame(lastPose[index], .015));
+  if (!needed.every((index) => landmarkVisible(lastPose[index], visibility)) || (!games[selectedGame].fullBody && !handVisible) || (flightGame && !bothFlightHandsVisible)) {
+    return { good: false, title: games[selectedGame].fullBody ? "발목까지 보여주세요" : flightGame ? "두 손을 모두 보여주세요" : "한 손을 흔들어 주세요", text: flightGame ? "양팔을 펼쳐도 잘리지 않게 화면 안에 넣어 주세요." : "카메라 정면에서 손을 들어 보여주세요." };
   }
   const points = needed.map((index) => lastPose[index]);
   const minX = Math.min(...points.map((p) => p.x)), maxX = Math.max(...points.map((p) => p.x));
@@ -423,7 +442,7 @@ function analyzeFit() {
     const rightShoulder = lastPose[LM.rs];
     const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x);
     centerX = (leftShoulder.x + rightShoulder.x) / 2;
-    tooClose = shoulderWidth > .58 || minY < .025;
+    tooClose = shoulderWidth > (flightGame ? .30 : .58) || minY < .025;
     tooFar = shoulderWidth < .10;
   }
   if (tooClose) return { good: false, title: "카메라가 너무 가까워요", text: "전신이 잘리지 않게 1~2걸음 뒤로 이동하세요." };
@@ -524,10 +543,15 @@ function rearmGameInput() {
     gameState.baselineHipY = null;
     gameState.groundY = null;
   } else if (selectedGame === "jack") {
-    gameState.phase = "needClosed";
-    gameState.stableMs = 0;
-    gameState.armsOpen = false;
-    gameState.legsOpen = false;
+    gameState.phase = "needUp";
+    gameState.phaseMs = 0;
+    gameState.strokeMs = 0;
+    gameState.invalidMs = 0;
+    gameState.upWingY = null;
+    gameState.inputValid = false;
+    gameState.wingsUp = false;
+    gameState.wingsDown = false;
+    gameState.velocity = Math.max(gameState.velocity || 0, .06);
   }
   updateGameCue();
 }
@@ -555,7 +579,7 @@ function announceRound() {
     return speakKorean(`${withObjectParticle(gameState.prompt.ko)} 찾으세요.`, true);
   }
   if (selectedGame === "squat") return speakEnglish(gameState.currentAction?.en || "Let's move!", true);
-  return speakEnglish("Open and close. Make a star!", true);
+  return speakEnglish("Flap your arms! Fly up!", true);
 }
 
 function scheduleRoundAnnouncement(delay = 0) {
@@ -573,7 +597,7 @@ function createGameState(game) {
   if (game === "sequence") return createSequenceRound(1);
   if (game === "math") return createMathProblem();
   if (game === "squat") return createActionGame();
-  return { phase: "needClosed", reps: 0, stableMs: 0, armsOpen: false, legsOpen: false };
+  return createFlightGame();
 }
 
 function sequenceSlots(count) {
@@ -583,6 +607,7 @@ function sequenceSlots(count) {
 }
 
 function createSequenceRound(round) {
+  if (round > SPELLING_GOAL) return null;
   const prompt = nextWord();
   if (!prompt) return null;
   const letters = [...prompt.word];
@@ -595,6 +620,7 @@ function createSequenceRound(round) {
 }
 
 function createMathProblem() {
+  if (wordDeck.length < 2) return null;
   const prompt = nextWord();
   const distractor = nextWord();
   if (!prompt || !distractor) return null;
@@ -879,6 +905,16 @@ function createActionGame() {
   return state;
 }
 
+function createFlightGame() {
+  return {
+    mode: "flight", phase: "needUp", phaseMs: 0, strokeMs: 0, invalidMs: 0,
+    upWingY: null, sinceFlapMs: Infinity, inputValid: false,
+    wingsUp: false, wingsDown: false, stars: 0, flaps: 0, reps: 0,
+    flightY: .68, bestAltitude: .32, velocity: 0, wingEnergy: 0,
+    sessionComplete: false, advancing: false
+  };
+}
+
 function activateActionCommand(state, index) {
   const action = state.commands[index];
   state.commandIndex = index;
@@ -934,6 +970,14 @@ function staticActionMatches(action, points, metric, state) {
     const rightDown = metric.rightArm < 65 && points.rw.y > metric.shoulderMid.y + metric.torso * .06;
     return (leftTouches && rightDown) || (rightTouches && leftDown);
   }
+  if (action.id === "touchShoulders") {
+    const wristMidY = (points.lw.y + points.rw.y) / 2;
+    return distance(points.lw, points.ls) < metric.shoulderWidth * .62
+      && distance(points.rw, points.rs) < metric.shoulderWidth * .62
+      && metric.leftElbow < 130 && metric.rightElbow < 130
+      && metric.wristGap > metric.shoulderWidth * .65
+      && wristMidY < metric.shoulderMid.y + metric.torso * .40;
+  }
   if (action.id === "airplane") {
     return metric.leftArm > 68 && metric.leftArm < 112 && metric.rightArm > 68 && metric.rightArm < 112
       && metric.leftElbow > 138 && metric.rightElbow > 138
@@ -950,6 +994,32 @@ function staticActionMatches(action, points, metric, state) {
       && wristMid.y < metric.hipMid.y - metric.torso * .04
       && metric.leftElbow > 38 && metric.leftElbow < 155 && metric.rightElbow > 38 && metric.rightElbow < 155;
   }
+  if (action.id === "handsOnHips") {
+    const elbowGap = distance(points.le, points.re);
+    const wristMidY = (points.lw.y + points.rw.y) / 2;
+    return distance(points.lw, points.lh) < metric.shoulderWidth * .70
+      && distance(points.rw, points.rh) < metric.shoulderWidth * .70
+      && metric.leftElbow < 135 && metric.rightElbow < 135
+      && elbowGap > metric.shoulderWidth * 1.45
+      && Math.abs(wristMidY - metric.hipMid.y) < metric.torso * .34;
+  }
+  if (action.id === "touchKnees") {
+    const wristMidY = (points.lw.y + points.rw.y) / 2;
+    return distance(points.lw, points.lk) < metric.shoulderWidth * .85
+      && distance(points.rw, points.rk) < metric.shoulderWidth * .85
+      && metric.leftKnee > 145 && metric.rightKnee > 145
+      && wristMidY > metric.hipMid.y + metric.torso * .35
+      && Math.abs(points.la.y - points.ra.y) < metric.torso * .12;
+  }
+  if (action.id === "leanSide") {
+    const lean = Math.abs(metric.shoulderMid.x - metric.hipMid.x) / metric.torso;
+    return lean > .20 && lean < .82
+      && metric.leftArm < 70 && metric.rightArm < 70
+      && points.lw.y > metric.shoulderMid.y + metric.torso * .30
+      && points.rw.y > metric.shoulderMid.y + metric.torso * .30
+      && metric.leftKnee > 150 && metric.rightKnee > 150
+      && Math.abs(points.la.y - points.ra.y) < metric.torso * .10;
+  }
   return false;
 }
 
@@ -962,7 +1032,8 @@ function completeActionMission() {
   gameState.progress = 1;
   gameState.advancing = true;
   inputLockedUntil = Infinity;
-  const point = exerciseFeedbackPoint(action.id === "oneLeg" || action.id === "squat" ? .62 : .42);
+  const lowerBodyAction = ["oneLeg", "touchKnees", "squat", "leanSide"].includes(action.id);
+  const point = exerciseFeedbackPoint(lowerBodyAction ? .62 : .42);
   award(170, point.x, point.y, `${action.en.replace("!", "")} ✓`, `${gameState.completed}/${gameState.commands.length} · ${action.ko}`);
   updateGameCue();
   const completedState = gameState;
@@ -974,7 +1045,7 @@ function completeActionMission() {
     if (moved || token !== speechRoundToken || gameState !== completedState) return;
     moved = true;
     if (nextIndex >= completedState.commands.length) {
-      finishRunSoon("🎉 영어 동작 6개 완주!", "서로 다른 명령을 모두 따라 했어요", 1050);
+      finishRunSoon(`🎉 영어 동작 ${completedState.commands.length}개 완주!`, "서로 다른 명령을 모두 따라 했어요", 1050);
       return;
     }
     activateActionCommand(completedState, nextIndex);
@@ -1073,53 +1144,140 @@ function updateActionGame(dt) {
   updateGameCue();
 }
 
-function jackFeatures(points) {
-  const shoulderWidth = Math.max(35, distance(points.ls, points.rs));
-  const shoulderY = (points.ls.y + points.rs.y) / 2;
-  const ankleGap = Math.abs(points.la.x - points.ra.x);
-  const leftArmAngle = angle(points.lh, points.ls, points.lw);
-  const rightArmAngle = angle(points.rh, points.rs, points.rw);
-  const armsOpen = leftArmAngle > 130 && rightArmAngle > 130 && points.lw.y < shoulderY && points.rw.y < shoulderY;
-  const legsOpen = ankleGap > shoulderWidth * 1.38;
-  const armsClosed = leftArmAngle < 48 && rightArmAngle < 48 && points.lw.y > shoulderY && points.rw.y > shoulderY;
-  const legsClosed = ankleGap < shoulderWidth * 1.12;
-  return { armsOpen, legsOpen, armsClosed, legsClosed };
+function flightLandmarksUsable() {
+  const inFrame = (index, minimum) => {
+    const point = lastPose?.[index];
+    return landmarkVisible(point, minimum)
+      && point.x >= .015 && point.x <= .985
+      && point.y >= .015 && point.y <= .985;
+  };
+  return [LM.ls, LM.rs].every((index) => inFrame(index, .42))
+    && [LM.le, LM.re].every((index) => inFrame(index, .34))
+    && [LM.lw, LM.rw].every((index) => inFrame(index, .38));
 }
 
-function completeJackRep() {
-  gameState.reps++;
-  const point = exerciseFeedbackPoint(.44);
-  award(160, point.x, point.y, `STAR POSE ${gameState.reps}!`, "OPEN + CLOSE · 참 잘했어요!");
-  speakEnglish("Great star pose!");
-  gameState.phase = "ready";
-  gameState.stableMs = 0;
+function flightFrameUsable(points = posePoints()) {
+  if (!points || !flightLandmarksUsable()) return false;
+  const shoulderRatio = distance(points.ls, points.rs) / Math.max(1, cameraRect.w);
+  return shoulderRatio >= .10 && shoulderRatio <= .30;
 }
 
-function updateJack(dt) {
+function flightFeatures(points) {
+  const shoulderWidth = distance(points.ls, points.rs);
+  const shoulderRatio = shoulderWidth / Math.max(1, cameraRect.w);
+  if (!flightFrameUsable(points)) {
+    return { valid: false, wingsUp: false, wingsDown: false, wingY: 0, shoulderWidth: Math.max(1, shoulderWidth) };
+  }
+  const upLeft = (points.ls.y - points.lw.y) / shoulderWidth;
+  const upRight = (points.rs.y - points.rw.y) / shoulderWidth;
+  const sync = Math.abs(upLeft - upRight);
+  const wristGap = distance(points.lw, points.rw) / shoulderWidth;
+  const wingY = (points.lw.y + points.rw.y) / 2;
+  return {
+    valid: true, shoulderWidth, wingY, upLeft, upRight, sync, wristGap,
+    wingsUp: upLeft > .35 && upRight > .35 && sync < .30 && wristGap > 1.70,
+    wingsDown: upLeft < -.70 && upRight < -.70 && sync < .35
+  };
+}
+
+function resetFlightStroke(state = gameState) {
+  if (!state) return;
+  state.phase = "needUp";
+  state.phaseMs = 0;
+  state.strokeMs = 0;
+  state.upWingY = null;
+  state.wingsUp = false;
+  state.wingsDown = false;
+}
+
+function collectFlightStar() {
+  const state = gameState;
+  if (!state || state.advancing || state.sessionComplete || state.stars >= FLIGHT_STAR_GOAL) return;
+  state.stars++;
+  state.flaps++;
+  state.reps = state.stars;
+  state.flightY = Math.max(.12, state.flightY - .055);
+  state.bestAltitude = Math.max(state.bestAltitude || 0, 1 - state.flightY);
+  state.velocity = Math.max(-.34, Math.min(state.velocity, .02) - .20);
+  state.wingEnergy = 1;
+  state.sinceFlapMs = 0;
+  resetFlightStroke(state);
+  const point = {
+    x: cameraRect.x + cameraRect.w * .68,
+    y: cameraRect.y + cameraRect.h * clamp(state.flightY, .18, .82)
+  };
+  award(160, point.x, point.y, `STAR ${state.stars}!`, `날갯짓 성공 · ${state.stars}/${FLIGHT_STAR_GOAL}`);
+  if (state.stars >= FLIGHT_STAR_GOAL) {
+    finishRunSoon(`🎉 하늘 별 ${FLIGHT_STAR_GOAL}개!`, "양팔 날갯짓으로 멋지게 날았어요", 1050);
+  } else {
+    updateGameCue();
+  }
+}
+
+function updateFlightInput(dt) {
+  const state = gameState;
+  if (!state || state.advancing || state.sessionComplete) return;
   const points = posePoints();
   if (!points) return;
-  const feature = jackFeatures(points);
-  gameState.armsOpen = feature.armsOpen;
-  gameState.legsOpen = feature.legsOpen;
-  const open = feature.armsOpen && feature.legsOpen;
-  const closed = feature.armsClosed && feature.legsClosed;
-  if (gameState.phase === "needClosed") {
-    gameState.stableMs = closed ? gameState.stableMs + dt : 0;
-    if (gameState.stableMs >= 180) { gameState.phase = "ready"; gameState.stableMs = 0; speakEnglish("Open"); }
-  } else if (gameState.phase === "ready") {
-    gameState.stableMs = open ? gameState.stableMs + dt : 0;
-    if (gameState.stableMs >= 180) { gameState.phase = "open"; gameState.stableMs = 0; showToast("CLOSE! 모아요"); speakEnglish("Close"); }
-  } else if (gameState.phase === "open") {
-    gameState.stableMs = closed ? gameState.stableMs + dt : 0;
-    if (gameState.stableMs >= 180) completeJackRep();
+  const feature = flightFeatures(points);
+  state.inputValid = feature.valid;
+  state.wingsUp = feature.wingsUp;
+  state.wingsDown = feature.wingsDown;
+  state.sinceFlapMs = Math.min(5000, state.sinceFlapMs + dt);
+  if (!feature.valid) {
+    state.invalidMs += dt;
+    if (state.invalidMs >= 220) resetFlightStroke(state);
+    updateGameCue();
+    return;
+  }
+  state.invalidMs = 0;
+  if (state.phase === "needUp") {
+    state.phaseMs = feature.wingsUp ? state.phaseMs + dt : Math.max(0, state.phaseMs - dt * 2);
+    if (state.phaseMs >= 120) {
+      state.phase = "needDown";
+      state.phaseMs = 0;
+      state.strokeMs = 0;
+      state.upWingY = feature.wingY;
+    }
+  } else {
+    state.strokeMs += dt;
+    const travel = state.upWingY == null ? 0 : (feature.wingY - state.upWingY) / feature.shoulderWidth;
+    const downStroke = feature.wingsDown && travel >= 1.05 && state.strokeMs >= 160
+      && state.strokeMs <= 1400 && state.sinceFlapMs >= 280;
+    state.phaseMs = downStroke ? state.phaseMs + dt : Math.max(0, state.phaseMs - dt * 2);
+    if (state.strokeMs > 1400) resetFlightStroke(state);
+    else if (state.phaseMs >= 120) collectFlightStar();
   }
   updateGameCue();
+}
+
+function updateFlightPhysics(frameDt, now = performance.now()) {
+  const state = gameState;
+  if (selectedGame !== "jack" || !state || state.sessionComplete) return;
+  const dt = clamp(frameDt, 0, 50) / 1000;
+  const inputValid = demo || (poseIsFresh(now) && flightFrameUsable());
+  if (!inputValid) {
+    state.inputValid = false;
+    state.invalidMs += frameDt;
+    if (state.invalidMs >= 220) resetFlightStroke(state);
+  } else if (state.inputValid) {
+    state.invalidMs = 0;
+  }
+  if (state.sinceFlapMs > 380) state.velocity = Math.max(state.velocity, 0);
+  if (!inputValid) state.velocity = Math.max(state.velocity, .06);
+  const gravity = inputValid ? .32 : .48;
+  state.velocity = clamp(state.velocity + gravity * dt, -.34, .20);
+  state.flightY = clamp(state.flightY + state.velocity * dt, .12, .88);
+  state.bestAltitude = Math.max(state.bestAltitude || 0, 1 - state.flightY);
+  if (state.flightY >= .88 && state.velocity > 0) state.velocity = 0;
+  if (state.flightY <= .12 && state.velocity < 0) state.velocity = 0;
+  state.wingEnergy = Math.max(0, state.wingEnergy - dt * 1.8);
 }
 
 function updateGame(dt) {
   if (selectedGame === "sequence" || selectedGame === "math") updateTouchGame(dt);
   else if (selectedGame === "squat") updateActionGame(dt);
-  else updateJack(dt);
+  else updateFlightInput(dt);
 }
 
 function updateGameCue() {
@@ -1131,13 +1289,13 @@ function updateGameCue() {
     }
     const next = gameState.targets[gameState.current - 1]?.value || "";
     const progress = gameState.targets.map((target) => target.order < gameState.current ? target.value : "_").join(" ");
-    setCue(`${gameState.prompt.emoji} ${gameState.prompt.ko}의 철자를 완성해요!`, `${progress} · 다음 글자 ${next} · 단어 ${completedWordCount + 1}/${WORDS.length}`);
+    setCue(`${gameState.prompt.emoji} ${gameState.prompt.ko}의 철자를 완성해요!`, `${progress} · 다음 글자 ${next} · 단어 ${completedWordCount + 1}/${SPELLING_GOAL}`);
   } else if (selectedGame === "math") {
     if (gameState.answerRevealed) {
       setCue(`${gameState.prompt.emoji} ${gameState.prompt.ko} = ${gameState.prompt.word} ✓`, `같이 말해요 · ${gameState.prompt.word}`);
       return;
     }
-    setCue(`${gameState.prompt.emoji} ${withObjectParticle(gameState.prompt.ko)} 찾으세요!`, `알맞은 영어 단어를 골라요 · ${completedWordCount + 1}/${WORDS.length / 2}`);
+    setCue(`${gameState.prompt.emoji} ${withObjectParticle(gameState.prompt.ko)} 찾으세요!`, `알맞은 영어 단어를 골라요 · ${completedWordCount + 1}/${PICTURE_GOAL}`);
   } else if (selectedGame === "squat") {
     const action = gameState.currentAction;
     if (!action) return;
@@ -1149,9 +1307,16 @@ function updateGameCue() {
     if (gameState.phase === "needStand") hint = action.id === "oneLeg" ? "먼저 똑바로 서요 · 벽을 잡아도 좋아요" : "먼저 똑바로 서요";
     else if (action.id === "squat" && gameState.phase === "ready") hint = "천천히 앉아요";
     else if (action.id === "squat" && gameState.phase === "down") hint = "UP! 다시 일어나요";
-    setCue(`${action.emoji} ${action.en} · ${gameState.completed + 1}/${gameState.commands.length}`, hint);
+    setCue(`${gameState.completed + 1}/${gameState.commands.length} · ${action.emoji} ${action.en}`, hint);
   } else {
-    setCue(gameState.phase === "open" ? "CLOSE! 모아요" : gameState.phase === "needClosed" ? "READY! 차렷" : "OPEN! 별처럼 활짝", `${gameState.reps}번 성공 · 뛰지 않아도 돼요`);
+    if (gameState.advancing || gameState.sessionComplete) {
+      setCue(`⭐ ALL STARS! · ${gameState.stars}/${FLIGHT_STAR_GOAL}`, "날갯짓 비행을 완주했어요!");
+      return;
+    }
+    const hint = gameState.phase === "needDown"
+      ? "DOWN! 양팔을 아래로 크게 펄럭여요"
+      : "UP! 양팔을 크게 올려요 · 멈추면 내려가요";
+    setCue(`🪽 FLAP YOUR ARMS! · ${gameState.stars}/${FLIGHT_STAR_GOAL}`, hint);
   }
 }
 
@@ -1160,6 +1325,7 @@ function poseUsable(now = performance.now()) {
   if (selectedGame === "squat" && gameState?.currentAction) {
     return actionRequiredLandmarksUsable(gameState.currentAction);
   }
+  if (selectedGame === "jack") return flightFrameUsable();
   if (!requiredIndices(selectedGame).every((index) => landmarkVisible(lastPose[index], .32))) return false;
   if (selectedGame === "sequence" || selectedGame === "math") {
     return [LM.lw, LM.rw].some((index) => landmarkVisible(lastPose[index], .30));
@@ -1172,7 +1338,7 @@ function updateHUD() {
   ui.score.textContent = `★ ${hits}`;
   const successes = selectedGame === "sequence" || selectedGame === "math"
     ? completedWordCount
-    : selectedGame === "squat" ? (gameState?.completed || 0) : combo;
+    : selectedGame === "squat" ? (gameState?.completed || 0) : (gameState?.stars || 0);
   ui.combo.textContent = `🌟 ${successes}`;
   ui.time.textContent = remaining <= 10 ? "마무리" : "놀이 중";
 }
@@ -1250,7 +1416,8 @@ function drawBackground() {
     ctx.strokeStyle = "#ffffffdd";
     ctx.lineWidth = 4;
     ctx.strokeRect(cameraRect.x, cameraRect.y, cameraRect.w, cameraRect.h);
-    drawCanvasPill(cameraRect.x + 70, cameraRect.y + 18, games[selectedGame].fullBody ? "몸을 크게 ⭐" : "손을 흔들어요 👋", "#28775f", true);
+    const cameraHint = games[selectedGame].fullBody ? "몸을 크게 ⭐" : selectedGame === "jack" ? "두 팔을 보여요 🪽" : "손을 흔들어요 👋";
+    drawCanvasPill(cameraRect.x + 70, cameraRect.y + 18, cameraHint, "#28775f", true);
   }
 }
 
@@ -1266,7 +1433,7 @@ function landmarkSignal(index) {
 function focusJointSet() {
   if (selectedGame === "sequence" || selectedGame === "math") return new Set([LM.lw, LM.rw]);
   if (selectedGame === "squat") return new Set(gameState?.currentAction?.focus || [LM.ls, LM.rs, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
-  return new Set([LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
+  return new Set([LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw]);
 }
 
 function jointVisualColor(index, signal = landmarkSignal(index)) {
@@ -1286,9 +1453,7 @@ function jointVisualColor(index, signal = landmarkSignal(index)) {
     return gameState?.matching ? "#ffb15b" : "#38f6ff";
   }
   if (selectedGame === "jack") {
-    const confirmedOpen = gameState?.phase === "open";
-    if (ARM_JOINTS.has(index)) return confirmedOpen && gameState?.armsOpen ? "#c8ff3d" : "#ffb15b";
-    if (LEG_JOINTS.has(index)) return confirmedOpen && gameState?.legsOpen ? "#c8ff3d" : "#8a5cff";
+    if (ARM_JOINTS.has(index)) return gameState?.wingsUp || gameState?.wingsDown ? "#c8ff3d" : "#38f6ff";
   }
   return "#dce7ef";
 }
@@ -1379,12 +1544,11 @@ function drawPose(now = performance.now()) {
     }
   }
   if (running && selectedGame === "jack") {
-    const wrists = [points.get(LM.lw), points.get(LM.rw)], ankles = [points.get(LM.la), points.get(LM.ra)];
-    if (gameState?.phase === "open" && gameState?.armsOpen && wrists.every((point) => point?.v > .35)) {
-      drawCanvasPill((wrists[0].x + wrists[1].x) / 2, Math.min(wrists[0].y, wrists[1].y) - 18, "팔 OPEN ✓", "#c8ff3d", true);
-    }
-    if (gameState?.phase === "open" && gameState?.legsOpen && ankles.every((point) => point?.v > .35)) {
-      drawCanvasPill((ankles[0].x + ankles[1].x) / 2, Math.max(ankles[0].y, ankles[1].y) + 18, "다리 OPEN ✓", "#c8ff3d", true);
+    const wrists = [points.get(LM.lw), points.get(LM.rw)];
+    if (wrists.every((point) => point?.v > .35)) {
+      const wingLabel = gameState?.wingsUp ? "WINGS UP ✓" : gameState?.wingsDown ? "WINGS DOWN ✓" : gameState?.phase === "needDown" ? "DOWN!" : "UP!";
+      const wingColor = gameState?.wingsUp || gameState?.wingsDown ? "#c8ff3d" : "#38f6ff";
+      drawCanvasPill((wrists[0].x + wrists[1].x) / 2, Math.min(wrists[0].y, wrists[1].y) - 18, wingLabel, wingColor, true);
     }
   }
 }
@@ -1577,9 +1741,126 @@ function drawTouchGame() {
   }
 }
 
+function drawFlightCloud(x, y, size, alpha = .35) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "#fffaf0";
+  ctx.beginPath();
+  ctx.arc(x - size * .28, y + size * .04, size * .24, 0, Math.PI * 2);
+  ctx.arc(x, y - size * .10, size * .34, 0, Math.PI * 2);
+  ctx.arc(x + size * .30, y + size * .03, size * .26, 0, Math.PI * 2);
+  ctx.rect(x - size * .52, y, size * 1.04, size * .28);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawFlightGame() {
+  const state = gameState;
+  if (!state) return;
+  const { x, y, w, h } = cameraRect;
+  const now = performance.now();
+  const visualY = y + h * clamp(state.flightY, .18, .84);
+  const flyerX = x + w * (viewW < 700 ? .32 : .36);
+  const flyerSize = clamp(w * .15, 38, 68);
+  const scroll = (gameElapsed * .025) % Math.max(1, w);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+
+  const sky = ctx.createLinearGradient(0, y, 0, y + h);
+  sky.addColorStop(0, demo ? "#48cfffcc" : "#48cfff3f");
+  sky.addColorStop(.72, demo ? "#a8ecffb8" : "#a8ecff26");
+  sky.addColorStop(1, demo ? "#fff0b4aa" : "#fff0b426");
+  ctx.fillStyle = sky;
+  ctx.fillRect(x, y, w, h);
+
+  for (let i = 0; i < 5; i++) {
+    const cloudX = x + ((i * w * .31 - scroll * (i % 2 ? .46 : .28) + w * 2) % (w * 1.25)) - w * .12;
+    const cloudY = y + h * (.20 + (i % 3) * .23);
+    drawFlightCloud(cloudX, cloudY, clamp(w * (.07 + (i % 2) * .025), 24, 52), demo ? .66 : .30);
+  }
+
+  ctx.strokeStyle = "#ffd86b88";
+  ctx.lineWidth = Math.max(4, flyerSize * .10);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x - 10, visualY + flyerSize * .20);
+  ctx.bezierCurveTo(x + w * .16, visualY + flyerSize * .42, flyerX - flyerSize * .62, visualY + flyerSize * .12, flyerX - flyerSize * .34, visualY + flyerSize * .06);
+  ctx.stroke();
+  ctx.strokeStyle = "#ff93cf70";
+  ctx.lineWidth = Math.max(2, flyerSize * .05);
+  ctx.stroke();
+
+  const starX = x + w * .74;
+  const starY = clamp(visualY + Math.sin(now / 260) * h * .05, y + h * .20, y + h * .78);
+  const starPulse = 1 + Math.sin(now / 150) * .12;
+  ctx.save();
+  ctx.translate(starX, starY);
+  ctx.scale(starPulse, starPulse);
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = "#ffd94f";
+  ctx.font = `${clamp(w * .12, 34, 58)}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("⭐", 0, 0);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(flyerX, visualY);
+  const bounce = 1 + state.wingEnergy * .12;
+  ctx.scale(bounce, bounce);
+  ctx.fillStyle = "#fffaf0dd";
+  ctx.strokeStyle = "#38aeda";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, flyerSize * .58, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.font = `${flyerSize}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("🐧", 0, 2);
+  ctx.strokeStyle = state.wingsUp || state.wingsDown ? "#c8ff3d" : "#ffffffaa";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(-flyerSize * .46, 0, flyerSize * .36, -2.55, -1.10);
+  ctx.arc(flyerSize * .46, 0, flyerSize * .36, -2.04, -.58);
+  ctx.stroke();
+  ctx.restore();
+
+  const counterX = x + clamp(w * .14, 44, 92);
+  const counterY = y + h * .52;
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#fff";
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = "#ffcc42";
+  ctx.font = `700 ${viewW < 700 ? 46 : 68}px IBM Plex Sans KR`;
+  ctx.fillText(state.stars, counterX, counterY);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#fff";
+  ctx.font = "800 10px Nunito";
+  ctx.fillText(`STARS / ${FLIGHT_STAR_GOAL}`, counterX, counterY + 22);
+
+  const gap = clamp(w * .042, 10, 16);
+  const dotsWidth = gap * (FLIGHT_STAR_GOAL - 1);
+  const startX = x + w * .5 - dotsWidth / 2;
+  const dotsY = y + h * .90;
+  ctx.font = `${viewW < 700 ? 12 : 15}px sans-serif`;
+  for (let i = 0; i < FLIGHT_STAR_GOAL; i++) {
+    ctx.globalAlpha = i < state.stars ? 1 : .38;
+    ctx.fillText(i < state.stars ? "★" : "☆", startX + i * gap, dotsY);
+  }
+  ctx.restore();
+}
+
 function drawExerciseGame() {
-  const reps = selectedGame === "squat" ? (gameState?.completed || 0) : (gameState?.reps || 0);
-  const color = selectedGame === "squat" ? "#c8ff3d" : "#ff3ea5";
+  if (selectedGame === "jack") {
+    drawFlightGame();
+    return;
+  }
+  const reps = gameState?.completed || 0;
+  const color = "#c8ff3d";
   const x = viewW < 700 ? 70 : 110;
   const y = viewH * .56;
   const now = performance.now();
@@ -1601,21 +1882,14 @@ function drawExerciseGame() {
   ctx.shadowBlur = 0;
   ctx.fillStyle = "#fff";
   ctx.font = "700 11px IBM Plex Sans KR";
-  ctx.fillText(selectedGame === "squat" ? `MISSIONS / ${ACTION_COMMANDS.length}` : "STAR POSES", x, y + 24);
-  if (selectedGame === "squat") {
-    const gap = viewW < 700 ? 12 : 16;
-    const start = x - (ACTION_COMMANDS.length - 1) * gap / 2;
-    for (let i = 0; i < ACTION_COMMANDS.length; i++) {
-      ctx.beginPath();
-      ctx.arc(start + i * gap, y + 48, i === gameState.commandIndex ? 5 : 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = i < gameState.completed ? "#c8ff3d" : i === gameState.commandIndex ? "#ffb15b" : "#ffffff55";
-      ctx.fill();
-    }
-  } else {
-    ctx.fillStyle = gameState.armsOpen ? "#c8ff3d" : "#ffb15b";
-    ctx.fillText(gameState.armsOpen ? "OPEN ✓" : "팔 ·", x - 28, y + 54);
-    ctx.fillStyle = gameState.legsOpen ? "#c8ff3d" : "#8a5cff";
-    ctx.fillText(gameState.legsOpen ? "OPEN ✓" : "다리 ·", x + 36, y + 54);
+  ctx.fillText(`MISSIONS / ${ACTION_COMMANDS.length}`, x, y + 24);
+  const gap = viewW < 700 ? 12 : 16;
+  const start = x - (ACTION_COMMANDS.length - 1) * gap / 2;
+  for (let i = 0; i < ACTION_COMMANDS.length; i++) {
+    ctx.beginPath();
+    ctx.arc(start + i * gap, y + 48, i === gameState.commandIndex ? 5 : 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = i < gameState.completed ? "#c8ff3d" : i === gameState.commandIndex ? "#ffb15b" : "#ffffff55";
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -1789,16 +2063,17 @@ function burst(x, y, color) {
 
 function drawTrackingPause() {
   const fullBody = games[selectedGame].fullBody;
+  const flight = selectedGame === "jack";
   ctx.save();
   ctx.fillStyle = "#030207aa";
   ctx.fillRect(0, 0, viewW, viewH);
   ctx.fillStyle = "#ffb15b";
   ctx.textAlign = "center";
   ctx.font = `700 ${viewW < 700 ? 22 : 30}px IBM Plex Sans KR`;
-  ctx.fillText(fullBody ? "몸 전체를 다시 보여주세요" : "얼굴·어깨와 한 손을 보여주세요", viewW / 2, viewH / 2);
+  ctx.fillText(fullBody ? "몸 전체를 다시 보여주세요" : flight ? "어깨와 두 손을 다시 보여주세요" : "얼굴·어깨와 한 손을 보여주세요", viewW / 2, viewH / 2);
   ctx.fillStyle = "#c9c5d1";
   ctx.font = "400 13px IBM Plex Sans KR";
-  ctx.fillText(fullBody ? "인식되는 동안 게임 시간은 멈춥니다" : "한 손이 다시 보이면 바로 이어져요", viewW / 2, viewH / 2 + 30);
+  ctx.fillText(fullBody ? "인식되는 동안 게임 시간은 멈춥니다" : flight ? "화면 중앙에서 양팔을 크게 펄럭여요" : "한 손이 다시 보이면 바로 이어져요", viewW / 2, viewH / 2 + 30);
   ctx.restore();
 }
 
@@ -1812,6 +2087,7 @@ function render(now) {
   if (calibrating) updateCalibration(now);
 
   if (running) {
+    if (selectedGame === "jack") updateFlightPhysics(frameDt, now);
     const usable = demo || poseUsable(now);
     let trackingPaused = false;
     if (usable) {
@@ -1827,7 +2103,8 @@ function render(now) {
     } else if (lastUsablePoseAt && now - lastUsablePoseAt < 750) {
       setTracking("잠깐 다시 찾는 중", "warn");
     } else {
-      setTracking(games[selectedGame].fullBody ? "몸 전체를 보여주세요" : "얼굴·어깨와 한 손을 보여주세요", "warn");
+      const trackingHint = games[selectedGame].fullBody ? "몸 전체를 보여주세요" : selectedGame === "jack" ? "어깨와 두 손을 보여주세요" : "얼굴·어깨와 한 손을 보여주세요";
+      setTracking(trackingHint, "warn");
       trackingPaused = true;
     }
     if (trackingPaused && !trackingWasPaused) rearmGameInput();
@@ -1870,6 +2147,11 @@ function endGame() {
     ui.resultStreakLabel.textContent = "미션 목표";
     ui.accuracy.textContent = `${gameState?.completed || 0}/${ACTION_COMMANDS.length}`;
     ui.maxCombo.textContent = `${ACTION_COMMANDS.length}개`;
+  } else if (selectedGame === "jack") {
+    ui.resultMetricLabel.textContent = "최고 높이";
+    ui.resultStreakLabel.textContent = "별 목표";
+    ui.accuracy.textContent = `${Math.round((gameState?.bestAltitude || 0) * 100)}%`;
+    ui.maxCombo.textContent = `${FLIGHT_STAR_GOAL}개`;
   } else {
     ui.resultMetricLabel.textContent = "도전 횟수";
     ui.resultStreakLabel.textContent = "최고 연속";
@@ -1920,9 +2202,7 @@ function demoExercise(game) {
   if (game === "squat") {
     completeActionMission();
   } else {
-    if (gameState.phase === "needClosed") gameState.phase = "ready";
-    else if (gameState.phase === "ready") { gameState.phase = "open"; gameState.armsOpen = gameState.legsOpen = true; showToast("CLOSE! 다시 J"); speakEnglish("Close"); }
-    else { gameState.armsOpen = gameState.legsOpen = false; completeJackRep(); }
+    collectFlightStar();
   }
   updateGameCue();
 }
@@ -2042,16 +2322,34 @@ function syntheticPose(preset) {
     set(LM.le,.38,.17);set(LM.re,.62,.17);set(LM.lw,.40,.06);set(LM.rw,.60,.06);
   } else if (preset === "touchHead") {
     set(LM.le,.34,.20);set(LM.lw,.48,.11);
+  } else if (preset === "touchShoulders") {
+    set(LM.le,.30,.36);set(LM.re,.70,.36);set(LM.lw,.40,.29);set(LM.rw,.60,.29);
   } else if (preset === "airplane") {
     set(LM.le,.31,.27);set(LM.re,.69,.27);set(LM.lw,.20,.28);set(LM.rw,.80,.28);
   } else if (preset === "clap") {
     set(LM.le,.35,.37);set(LM.re,.65,.37);set(LM.lw,.47,.38);set(LM.rw,.53,.38);
+  } else if (preset === "handsOnHips") {
+    set(LM.le,.28,.42);set(LM.re,.72,.42);set(LM.lw,.44,.52);set(LM.rw,.56,.52);
   } else if (preset === "oneLeg") {
     set(LM.rk,.60,.60);set(LM.ra,.60,.68);
+  } else if (preset === "touchKnees") {
+    set(LM.le,.38,.54);set(LM.re,.62,.54);set(LM.lw,.45,.70);set(LM.rw,.55,.70);
   } else if (preset === "squat") {
     set(LM.lh,.38,.60);set(LM.rh,.62,.60);set(LM.lk,.34,.72);set(LM.rk,.66,.72);set(LM.la,.45,.91);set(LM.ra,.55,.91);
+  } else if (preset === "leanSide") {
+    [LM.nose,LM.ls,LM.rs,LM.le,LM.re,LM.lw,LM.rw].forEach((index) => pose[index].x -= .10);
   } else if (preset === "jackOpen") {
     set(LM.lw,.45,.07);set(LM.rw,.55,.07);set(LM.le,.33,.16);set(LM.re,.67,.16);set(LM.la,.25,.91);set(LM.ra,.75,.91);
+  } else if (preset === "flightUp") {
+    set(LM.le,.34,.22);set(LM.re,.66,.22);set(LM.lw,.25,.14);set(LM.rw,.75,.14);
+  } else if (preset === "flightMid") {
+    set(LM.le,.31,.27);set(LM.re,.69,.27);set(LM.lw,.20,.28);set(LM.rw,.80,.28);
+  } else if (preset === "flightSingle") {
+    set(LM.le,.34,.22);set(LM.lw,.25,.14);
+  } else if (preset === "flightTogether") {
+    set(LM.le,.42,.18);set(LM.re,.58,.18);set(LM.lw,.47,.14);set(LM.rw,.53,.14);
+  } else if (preset === "flightOffFrame") {
+    set(LM.le,.34,.22);set(LM.re,.66,.22);set(LM.lw,.25,-.02);set(LM.rw,.75,.14);
   }
   return pose;
 }
@@ -2070,12 +2368,16 @@ function runEngineSelfTest() {
   const results = {};
   selfTesting = true;
   demo = true;
+  selectedGame = "sequence";
   resetScore();
   const sequenceWords = [];
-  for (let round = 1; round <= WORDS.length; round++) {
+  for (let round = 1; round <= SPELLING_GOAL; round++) {
     const state = createSequenceRound(round);
     if (state) sequenceWords.push(state.prompt.word);
   }
+  const sequenceStopsAtGoal = createSequenceRound(SPELLING_GOAL + 1) === null;
+  const spellingDeckRemaining = wordDeck.length;
+  selectedGame = "math";
   resetScore();
   const pictureWords = [], pictureAnswers = [];
   while (wordDeck.length >= 2) {
@@ -2084,10 +2386,14 @@ function runEngineSelfTest() {
     pictureWords.push(...state.targets.map((target) => target.value));
   }
   results.noRepeat = {
-    pass: sequenceWords.length === WORDS.length && new Set(sequenceWords).size === WORDS.length
-      && pictureWords.length === WORDS.length && new Set(pictureWords).size === WORDS.length
-      && pictureAnswers.length === WORDS.length / 2 && new Set(pictureAnswers).size === pictureAnswers.length,
-    spelling: sequenceWords, pictureAnswers, shownPictureWords: pictureWords
+    pass: WORDS.length === PICTURE_GOAL * 2 && new Set(WORDS.map((item) => item.word)).size === WORDS.length
+      && WORDS.every((item) => item.word.length >= 3 && item.word.length <= 5)
+      && sequenceWords.length === SPELLING_GOAL && new Set(sequenceWords).size === SPELLING_GOAL
+      && sequenceStopsAtGoal && spellingDeckRemaining === WORDS.length - SPELLING_GOAL
+      && pictureWords.length === PICTURE_GOAL * 2 && new Set(pictureWords).size === PICTURE_GOAL * 2
+      && pictureAnswers.length === PICTURE_GOAL && new Set(pictureAnswers).size === PICTURE_GOAL
+      && wordDeck.length === 0,
+    spelling: sequenceWords, spellingDeckRemaining, pictureAnswers, shownPictureWords: pictureWords
   };
   selectedGame = "sequence";resetScore();gameState=createGameState("sequence");const spellWord=gameState.prompt.word;completeSequenceTarget(gameState.targets.find((target)=>target.order===1));
   results.sequence = { pass: gameState.current === 2 && hits === 1 && feedbacks.at(-1)?.type === "good" && WORDS.some((item)=>item.word===spellWord), word:spellWord, current: gameState.current, hits, feedback: feedbacks.at(-1)?.detail };
@@ -2105,14 +2411,28 @@ function runEngineSelfTest() {
   const offFrameMetric = actionMetrics(offFramePoints);
   const offFramePoseUsable = poseUsable(poseTimestamp);
   const offFrameHandsMatch = staticActionMatches(gameState.currentAction, offFramePoints, offFrameMetric, gameState);
-  activateActionCommand(gameState, 1);
+  activateActionCommand(gameState, ACTION_COMMANDS.findIndex((action) => action.id === "touchHead"));
   const overheadV = syntheticPose("jackOpen");
   lastPose = overheadV;lastWorldPose = overheadV;poseTimestamp = performance.now();
   const overheadVPoints = posePoints();
   const overheadVTouchHeadMatch = staticActionMatches(gameState.currentAction, overheadVPoints, actionMetrics(overheadVPoints), gameState);
+  const actionMatch = (actionId, preset) => {
+    activateActionCommand(gameState, ACTION_COMMANDS.findIndex((action) => action.id === actionId));
+    lastPose = syntheticPose(preset);lastWorldPose = syntheticPose(preset);poseTimestamp = performance.now();
+    const points = posePoints();
+    return staticActionMatches(gameState.currentAction, points, actionMetrics(points), gameState);
+  };
+  const actionCrossMatches = {
+    standAsShoulders: actionMatch("touchShoulders", "stand"),
+    clapAsShoulders: actionMatch("touchShoulders", "clap"),
+    standAsHips: actionMatch("handsOnHips", "stand"),
+    squatAsKnees: actionMatch("touchKnees", "squat"),
+    oneLegAsLean: actionMatch("leanSide", "oneLeg")
+  };
   results.actionNegatives = {
-    pass: headroomRejected && !offFramePoseUsable && !offFrameHandsMatch && !overheadVTouchHeadMatch,
-    headroomRejected, offFramePoseUsable, offFrameHandsMatch, overheadVTouchHeadMatch
+    pass: headroomRejected && !offFramePoseUsable && !offFrameHandsMatch && !overheadVTouchHeadMatch
+      && Object.values(actionCrossMatches).every((value) => !value),
+    headroomRejected, offFramePoseUsable, offFrameHandsMatch, overheadVTouchHeadMatch, actionCrossMatches
   };
   selectedGame = "squat";resetScore();gameState=createGameState("squat");const actionOrder=[];
   while (!gameState.sessionComplete && actionOrder.length <= ACTION_COMMANDS.length) {
@@ -2122,9 +2442,65 @@ function runEngineSelfTest() {
     else if (actionId === "squat") { feedSyntheticPose("stand", 12); feedSyntheticPose("squat", 12); feedSyntheticPose("stand", 12); }
     else feedSyntheticPose(actionId, 16);
   }
-  results.squat = { pass: gameState.completed === ACTION_COMMANDS.length && gameState.sessionComplete && new Set(actionOrder).size === ACTION_COMMANDS.length, completed:gameState.completed, order:actionOrder, feedback:feedbacks.at(-1)?.label };
-  selectedGame = "jack";resetScore();gameState=createGameState("jack");feedSyntheticPose("stand",10);feedSyntheticPose("jackOpen",10);feedSyntheticPose("stand",10);
-  results.jack = { pass: gameState.reps === 1 && feedbacks.at(-1)?.type === "good", reps: gameState.reps, phase: gameState.phase, feedback:feedbacks.at(-1)?.label };
+  results.squat = { pass: gameState.completed === ACTION_COMMANDS.length && gameState.sessionComplete && completedRun && new Set(actionOrder).size === ACTION_COMMANDS.length, completed:gameState.completed, order:actionOrder, feedback:feedbacks.at(-1)?.label };
+
+  selectedGame = "jack";
+  const flightFrameNegatives = {};
+  demo = false;
+  for (const [name, leftShoulderX, rightShoulderX] of [["tooNear", .30, .70], ["tooFar", .455, .545]]) {
+    resetScore();gameState=createGameState("jack");
+    const pose = syntheticPose("flightUp");
+    pose[LM.ls].x = leftShoulderX;
+    pose[LM.rs].x = rightShoulderX;
+    lastPose = pose;lastWorldPose = pose;poseTimestamp = performance.now();
+    const points = posePoints();
+    const beforeFallY = gameState.flightY;
+    const landmarkUsable = flightLandmarksUsable();
+    const frameUsable = flightFrameUsable(points);
+    const featureValid = flightFeatures(points).valid;
+    const usable = poseUsable(poseTimestamp);
+    gameState.inputValid = true;
+    updateFlightPhysics(50, poseTimestamp);
+    flightFrameNegatives[name] = {
+      landmarkUsable, frameUsable, featureValid, poseUsable: usable,
+      inputValid: gameState.inputValid, fell: gameState.flightY > beforeFallY
+    };
+  }
+  demo = true;
+  const rejectedFlightPoses = {};
+  for (const preset of ["flightMid", "flightSingle", "flightTogether", "flightOffFrame"]) {
+    resetScore();gameState=createGameState("jack");feedSyntheticPose(preset,20);
+    rejectedFlightPoses[preset] = gameState.stars;
+  }
+  resetScore();gameState=createGameState("jack");
+  feedSyntheticPose("stand",12);
+  feedSyntheticPose("flightUp",12);
+  const starsWhileHeldUp = gameState.stars;
+  feedSyntheticPose("stand",10);
+  const starsAfterFirstFlap = gameState.stars;
+  const beforeRiseY = gameState.flightY;
+  for (let i = 0; i < 4; i++) updateFlightPhysics(50);
+  const afterRiseY = gameState.flightY;
+  feedSyntheticPose("stand",20);
+  const starsWhileHeldDown = gameState.stars;
+  feedSyntheticPose("flightMid",20);
+  for (let i = 0; i < 20; i++) updateFlightPhysics(50);
+  const afterIdleFallY = gameState.flightY;
+  while (!gameState.sessionComplete && gameState.stars < FLIGHT_STAR_GOAL) {
+    feedSyntheticPose("flightUp",6);
+    feedSyntheticPose("stand",10);
+  }
+  results.flight = {
+    pass: Object.values(flightFrameNegatives).every((item) => item.landmarkUsable
+        && !item.frameUsable && !item.featureValid && !item.poseUsable && !item.inputValid && item.fell)
+      && Object.values(rejectedFlightPoses).every((count) => count === 0)
+      && starsWhileHeldUp === 0 && starsAfterFirstFlap === 1 && starsWhileHeldDown === 1
+      && afterRiseY < beforeRiseY && afterIdleFallY > afterRiseY
+      && gameState.stars === FLIGHT_STAR_GOAL && hits === FLIGHT_STAR_GOAL
+      && gameState.sessionComplete && completedRun,
+    flightFrameNegatives, rejectedFlightPoses, starsWhileHeldUp, starsAfterFirstFlap, starsWhileHeldDown,
+    beforeRiseY, afterRiseY, afterIdleFallY, stars:gameState.stars, phase:gameState.phase, feedback:feedbacks.at(-1)?.label
+  };
   running = false;demo = false;selectedGame = "math";gameState = null;resetScore();selfTesting = false;
   results.pass = Object.values(results).every((item) => item?.pass !== false);
   window.__MOTION_SELFTEST__ = results;
