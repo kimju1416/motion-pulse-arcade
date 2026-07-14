@@ -30,10 +30,10 @@
       <h1>몸이 곧<br><em>컨트롤러</em></h1>
       <p class="lead">원하는 게임을 고르세요.<br>손·전신 움직임이 점수로 연결됩니다.</p>
       <div class="game-picker" role="group" aria-label="게임 선택">
-        <button class="game-card active" data-game="pulse"><b>01</b><span>NEON TOUCH<small>코어 터치 · 60초</small></span></button>
-        <button class="game-card" data-game="rhythm"><b>02</b><span>BEAT BOX<small>좌우 펀치 · 45초</small></span></button>
-        <button class="game-card" data-game="squat"><b>03</b><span>SQUAT TUNNEL<small>스쿼트 반복 · 45초</small></span></button>
-        <button class="game-card" data-game="pose"><b>04</b><span>POSE FLASH<small>전신 포즈 · 60초</small></span></button>
+        <button class="game-card active" data-game="pulse"><img src="assets/game-pulse.webp" alt="코어를 터치하는 동작"><b>01</b><span>NEON TOUCH<small>코어 터치 · 60초</small></span></button>
+        <button class="game-card" data-game="rhythm"><img src="assets/game-rhythm.webp" alt="좌우 펀치 동작"><b>02</b><span>BEAT BOX<small>좌우 펀치 · 45초</small></span></button>
+        <button class="game-card" data-game="squat"><img src="assets/game-squat.webp" alt="게이트 아래 스쿼트 동작"><b>03</b><span>SQUAT TUNNEL<small>스쿼트 반복 · 45초</small></span></button>
+        <button class="game-card" data-game="pose"><img src="assets/game-pose.webp" alt="전신 포즈 동작"><b>04</b><span>POSE FLASH<small>전신 포즈 · 60초</small></span></button>
       </div>
       <div class="actions">
         <button id="startBtn" class="primary">카메라로 시작 <span>→</span></button>
@@ -57,6 +57,7 @@
     </section>
 
     <div id="countdown" class="countdown hidden" aria-live="assertive"></div>
+    <img id="motionArt" class="motion-art hidden" src="assets/game-pulse.webp" alt="현재 게임 동작 안내">
     <div id="cue" class="cue hidden"><small>NEXT MOVE</small><strong></strong><span></span></div>
     <div id="toast" class="toast" aria-live="polite"></div>
 

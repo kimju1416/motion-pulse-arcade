@@ -6,26 +6,26 @@ const video = $("#camera");
 const ui = {
   intro:$("#intro"),loading:$("#loading"),loadingTitle:$("#loadingTitle"),loadingText:$("#loadingText"),
   calibrate:$("#calibrate"),calibrateText:$("#calibrateText"),signal:$("#signalBar"),countdown:$("#countdown"),
-  result:$("#result"),resultTitle:$("#resultTitle"),cue:$("#cue"),toast:$("#toast"),demoHelp:$("#demoHelp"),
+  result:$("#result"),resultTitle:$("#resultTitle"),cue:$("#cue"),toast:$("#toast"),demoHelp:$("#demoHelp"),motionArt:$("#motionArt"),
   score:$("#score"),combo:$("#combo"),time:$("#time"),finalScore:$("#finalScore"),accuracy:$("#accuracy"),maxCombo:$("#maxCombo"),grade:$("#grade")
 };
 
-const bg = new Image(); bg.src = "assets/neon-arena.png";
+const bg = new Image(); bg.src = "assets/neon-arena.webp";
 let poseLandmarker, stream, running=false, demo=false, sound=true, lastVideoTime=-1, lastPose=null;
 let score=0, combo=0, maxCombo=0, hits=0, misses=0, startedAt=0, target=null, particles=[], ripples=[];
 let calibrationFrames=0, calibrationStarted=0, audioCtx;
 let selectedGame="pulse", sessionMs=60000, squatNext="squat", rhythmSide="right";
 const TARGET_LIFE=2600;
 const games={
-  pulse:{name:"NEON TOUCH",ms:60000,description:"공간에 나타나는 코어와 스쿼트 게이트를 연속 공략합니다."},
-  rhythm:{name:"BEAT BOX",ms:45000,description:"박자에 맞춰 왼손과 오른손 펀치를 번갈아 적중시킵니다."},
-  squat:{name:"SQUAT TUNNEL",ms:45000,description:"낮은 게이트와 높은 게이트를 오가며 정확한 스쿼트를 반복합니다."},
-  pose:{name:"POSE FLASH",ms:60000,description:"양팔 들기, T 자세, 좌우 기울이기 등 전신 포즈를 빠르게 맞춥니다."}
+  pulse:{name:"NEON TOUCH",ms:60000,image:"assets/game-pulse.webp",description:"공간에 나타나는 코어와 스쿼트 게이트를 연속 공략합니다."},
+  rhythm:{name:"BEAT BOX",ms:45000,image:"assets/game-rhythm.webp",description:"박자에 맞춰 왼손과 오른손 펀치를 번갈아 적중시킵니다."},
+  squat:{name:"SQUAT TUNNEL",ms:45000,image:"assets/game-squat.webp",description:"낮은 게이트와 높은 게이트를 오가며 정확한 스쿼트를 반복합니다."},
+  pose:{name:"POSE FLASH",ms:60000,image:"assets/game-pose.webp",description:"양팔 들기, T 자세, 좌우 기울이기 등 전신 포즈를 빠르게 맞춥니다."}
 };
 const connections=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
 
 function resize(){const d=Math.min(devicePixelRatio||1,2);canvas.width=innerWidth*d;canvas.height=innerHeight*d;ctx.setTransform(d,0,0,d,0,0)}
-addEventListener("resize",resize); resize();
+addEventListener("resize",resize);addEventListener("orientationchange",()=>setTimeout(resize,180));resize();
 const hide=(...els)=>els.forEach(e=>e.classList.add("hidden")); const show=(e)=>e.classList.remove("hidden");
 function setLoading(title,text){ui.loadingTitle.textContent=title;ui.loadingText.textContent=text;show(ui.loading)}
 function tone(freq=440,dur=.08,type="sine",vol=.06){if(!sound)return;audioCtx ||= new AudioContext();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type=type;o.frequency.value=freq;g.gain.setValueAtTime(vol,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+dur);o.connect(g).connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+dur)}
@@ -38,7 +38,8 @@ async function loadPose(){
 async function startCamera(){
   hide(ui.intro);setLoading("카메라 연결 중","브라우저의 카메라 사용을 허용해 주세요.");
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:"user"},audio:false});
+    const portrait=matchMedia("(orientation: portrait)").matches;
+    stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:portrait?720:1280},height:{ideal:portrait?1280:720},facingMode:{ideal:"user"},frameRate:{ideal:30,max:30}},audio:false});
     video.srcObject=stream;await video.play();setLoading("동작 인식 준비 중","AI 포즈 모델을 불러오고 있습니다.");await loadPose();
     hide(ui.loading);show(ui.calibrate);calibrationStarted=performance.now();calibrationFrames=0;demo=false;requestAnimationFrame(loop);
   }catch(err){setLoading("카메라를 시작할 수 없어요","주소창의 카메라 권한을 허용한 뒤 새로고침하거나, 카메라 없이 체험해 보세요.");setTimeout(()=>{hide(ui.loading);show(ui.intro)},3500)}
@@ -48,7 +49,7 @@ async function startCountdown(){
   hide(ui.calibrate,ui.loading);for(const n of [3,2,1]){ui.countdown.textContent=n;show(ui.countdown);tone(280+n*80,.12,"square",.04);await new Promise(r=>setTimeout(r,720));hide(ui.countdown)}
   ui.countdown.textContent="GO";show(ui.countdown);tone(660,.25,"sawtooth",.07);await new Promise(r=>setTimeout(r,520));hide(ui.countdown);beginGame();
 }
-function beginGame(){score=combo=maxCombo=hits=misses=0;particles=[];ripples=[];squatNext="squat";rhythmSide="right";sessionMs=games[selectedGame].ms;startedAt=performance.now();running=true;spawnTarget();updateHUD();show(ui.cue);if(demo)requestAnimationFrame(loop)}
+function beginGame(){score=combo=maxCombo=hits=misses=0;particles=[];ripples=[];squatNext="squat";rhythmSide="right";sessionMs=games[selectedGame].ms;ui.motionArt.src=games[selectedGame].image;startedAt=performance.now();running=true;spawnTarget();updateHUD();show(ui.cue);show(ui.motionArt);if(demo)requestAnimationFrame(loop)}
 function spawnTarget(){
   const elapsed=(performance.now()-startedAt)/1000;let type="any",x=.5,y=.5,radius=.065;
   if(selectedGame==="pulse"){
@@ -110,9 +111,9 @@ function loop(t=performance.now()){
   if(running){drawTarget(t);drawEffects();checkHit(t);updateHUD();if(t-startedAt>=sessionMs)endGame()}
   if(running||(!demo&&stream))requestAnimationFrame(loop)
 }
-function endGame(){running=false;target=null;hide(ui.cue,ui.demoHelp);const total=hits+misses,acc=total?Math.round(hits/total*100):0;ui.resultTitle.textContent=`${games[selectedGame].name} 완료!`;ui.finalScore.textContent=score.toLocaleString();ui.accuracy.textContent=`${acc}%`;ui.maxCombo.textContent=maxCombo;ui.grade.textContent=acc>=92?"S":acc>=80?"A":acc>=65?"B":"C";tone(660,.18,"triangle",.08);setTimeout(()=>tone(880,.35,"triangle",.08),180);show(ui.result)}
+function endGame(){running=false;target=null;hide(ui.cue,ui.demoHelp,ui.motionArt);const total=hits+misses,acc=total?Math.round(hits/total*100):0;ui.resultTitle.textContent=`${games[selectedGame].name} 완료!`;ui.finalScore.textContent=score.toLocaleString();ui.accuracy.textContent=`${acc}%`;ui.maxCombo.textContent=maxCombo;ui.grade.textContent=acc>=92?"S":acc>=80?"A":acc>=65?"B":"C";tone(660,.18,"triangle",.08);setTimeout(()=>tone(880,.35,"triangle",.08),180);show(ui.result)}
 function demoTap(x,y){if(!running||!demo||!target||target.type==="squat")return;const tx=target.x*innerWidth,ty=target.y*innerHeight,r=target.r*Math.min(innerWidth,innerHeight);if(Math.hypot(x-tx,y-ty)<r*1.4)hitTarget(tx,ty)}
 $("#app").addEventListener("click",e=>{if(!e.target.closest("button"))demoTap(e.clientX,e.clientY)});addEventListener("keydown",e=>{if(!demo||!running||!target)return;if(target.type==="squat"&&e.key.toLowerCase()==="s")hitTarget(innerWidth/2,target.y*innerHeight);else if(target.type!=="squat"&&e.code==="Space")hitTarget(target.x*innerWidth,target.y*innerHeight)});
 $("#startBtn").onclick=startCamera;$("#demoBtn").onclick=startDemo;$("#retryBtn").onclick=()=>{hide(ui.result);demo?startCountdown():startCountdown()};$("#soundBtn").onclick=e=>{sound=!sound;e.currentTarget.classList.toggle("off",!sound)};
-document.querySelectorAll(".game-card").forEach(card=>card.addEventListener("click",()=>{document.querySelectorAll(".game-card").forEach(c=>c.classList.remove("active"));card.classList.add("active");selectedGame=card.dataset.game;sessionMs=games[selectedGame].ms;$("#gameDescription").textContent=games[selectedGame].description;ui.time.textContent=Math.round(sessionMs/1000);tone(330,.05,"triangle",.025)}));
+document.querySelectorAll(".game-card").forEach(card=>card.addEventListener("click",()=>{document.querySelectorAll(".game-card").forEach(c=>c.classList.remove("active"));card.classList.add("active");selectedGame=card.dataset.game;sessionMs=games[selectedGame].ms;ui.motionArt.src=games[selectedGame].image;ui.motionArt.alt=`${games[selectedGame].name} 동작 안내`;$("#gameDescription").textContent=games[selectedGame].description;ui.time.textContent=Math.round(sessionMs/1000);tone(330,.05,"triangle",.025)}));
 drawBackground(0);
