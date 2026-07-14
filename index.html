@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#05040b" />
-  <title>MOTION//PULSE — 카메라 모션 게임</title>
+  <meta name="theme-color" content="#73d8ff" />
+  <meta name="description" content="카메라 앞에서 몸을 움직이며 영어를 배우는 유아용 모션 게임" />
+  <title>말랑잉글리시 · 몸으로 배우는 영어 놀이터</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Jua&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -16,72 +17,102 @@
     <canvas id="gameCanvas"></canvas>
 
     <header class="hud" aria-label="게임 상태">
-      <div class="brand"><i></i><span>MOTION</span><b>//PULSE</b></div>
-      <div id="trackingStatus" class="tracking-status"><i></i><span>카메라 대기</span></div>
-      <div class="hud-stats">
-        <div><small>SCORE</small><strong id="score">00000</strong></div>
-        <div><small>COMBO</small><strong id="combo">×0</strong></div>
-        <div class="time"><small>TIME</small><strong id="time">60</strong></div>
+      <div class="brand" aria-label="말랑잉글리시 홈">
+        <i aria-hidden="true">★</i>
+        <span>말랑</span><b>ENGLISH</b>
       </div>
-      <button id="soundBtn" class="icon-btn" aria-label="소리 켜기 또는 끄기">♪</button>
+      <div id="trackingStatus" class="tracking-status" role="status">
+        <i aria-hidden="true"></i><span>카메라 준비 중</span>
+      </div>
+      <div class="hud-stats">
+        <div><small>모은 별</small><strong id="score">★ 0</strong></div>
+        <div><small>성공</small><strong id="combo">🌟 0</strong></div>
+        <div class="time"><small>놀이</small><strong id="time">놀이 중</strong></div>
+      </div>
+      <button id="homeBtn" class="icon-btn home-btn hidden" type="button" aria-label="놀이를 그만하고 메뉴로 돌아가기">🏠</button>
+      <button id="soundBtn" class="icon-btn" type="button" aria-label="소리 켜기 또는 끄기">🔊</button>
     </header>
 
     <section id="intro" class="panel intro-panel">
-      <p class="eyebrow">CAMERA MOTION ARCADE</p>
-      <h1>몸이 곧<br><em>컨트롤러</em></h1>
-      <p class="lead">원하는 게임을 고르세요.<br>손·전신 움직임이 점수로 연결됩니다.</p>
-      <div class="game-picker" role="group" aria-label="게임 선택">
-        <button class="game-card active" data-game="sequence"><img src="assets/game-sequence.webp" alt="숫자를 순서대로 터치하는 동작"><b>01</b><span>ORDER TOUCH<small>순서대로 터치 · 60초</small></span></button>
-        <button class="game-card" data-game="math"><img src="assets/game-math.webp" alt="덧셈 정답을 터치하는 동작"><b>02</b><span>MATH HIT<small>덧셈 정답 터치 · 60초</small></span></button>
-        <button class="game-card" data-game="squat"><img src="assets/game-squat.webp" alt="정확한 스쿼트 동작"><b>03</b><span>SQUAT COUNT<small>스쿼트 반복 · 45초</small></span></button>
-        <button class="game-card" data-game="jack"><img src="assets/game-jack.webp" alt="팔벌려뛰기 동작"><b>04</b><span>JUMPING JACK<small>팔벌려뛰기 · 45초</small></span></button>
+      <div class="hero-copy">
+        <p class="eyebrow"><span aria-hidden="true">🌈</span> 몸으로 노는 영어 놀이터</p>
+        <h1>움직이면<br><em>영어가 쏙쏙!</em></h1>
+        <p class="lead">좋아하는 놀이를 고르고<br>카메라 앞에서 신나게 움직여요.</p>
       </div>
+
+      <div class="game-picker" role="group" aria-label="영어 놀이 선택">
+        <button class="game-card" type="button" data-game="sequence">
+          <span class="card-badge">추천</span>
+          <img src="assets/kid-spell-pop-v1.webp" alt="알파벳을 순서대로 터치하는 놀이">
+          <b aria-hidden="true">🔤</b>
+          <span>철자 톡톡<small>알파벳을 순서대로!</small></span>
+        </button>
+        <button class="game-card active" type="button" data-game="math">
+          <span class="card-badge">쉬워요</span>
+          <img src="assets/kid-picture-pick-v1.webp" alt="그림에 알맞은 영어 단어를 찾는 놀이">
+          <b aria-hidden="true">🖼️</b>
+          <span>그림 단어 찾기<small>그림과 단어를 짝꿍!</small></span>
+        </button>
+        <button class="game-card" type="button" data-game="squat">
+          <span class="card-badge">튼튼</span>
+          <img src="assets/kid-squat-v1.webp" alt="영어 안내를 듣고 동작을 따라 하는 놀이">
+          <b aria-hidden="true">🙆</b>
+          <span>영어 동작 놀이<small>듣고 몸으로 따라 해요!</small></span>
+        </button>
+        <button class="game-card" type="button" data-game="jack">
+          <span class="card-badge">신나요</span>
+          <img src="assets/kid-star-jump-v1.webp" alt="영어 안내를 듣고 별 모양으로 움직이는 놀이">
+          <b aria-hidden="true">⭐</b>
+          <span>별 점프<small>OPEN, CLOSE를 배워요!</small></span>
+        </button>
+      </div>
+
       <div class="actions">
-        <button id="startBtn" class="primary">카메라로 시작 <span>→</span></button>
-        <button id="demoBtn" class="secondary">카메라 없이 체험</button>
+        <button id="startBtn" class="primary" type="button">📷 카메라로 시작!</button>
+        <button id="demoBtn" class="secondary" type="button">👀 먼저 구경하기</button>
       </div>
-      <p id="gameDescription" class="game-description">1번부터 차례대로 찾아 손으로 터치하세요.</p>
-      <p class="privacy">영상은 기기 안에서만 처리되며 저장·전송되지 않습니다.</p>
+      <p id="gameDescription" class="game-description"><span aria-hidden="true">🖼️</span> 그림과 같은 영어 단어를 손으로 골라요.</p>
+      <p class="privacy"><span aria-hidden="true">🔒</span><strong>부모님께:</strong> 카메라 영상은 이 기기 안에서만 동작 인식에 사용되며 저장하거나 전송하지 않아요.</p>
     </section>
 
     <section id="loading" class="panel compact hidden" aria-live="polite">
-      <div class="loader"><i></i><i></i><i></i></div>
-      <h2 id="loadingTitle">동작 인식 준비 중</h2>
-      <p id="loadingText">카메라와 AI 포즈 모델을 연결하고 있습니다.</p>
+      <div class="loader" aria-hidden="true"><i></i><i></i><i></i></div>
+      <h2 id="loadingTitle">영어 놀이터 준비 중!</h2>
+      <p id="loadingText">잠깐만 기다려 주세요.</p>
       <div id="loadingActions" class="loading-actions hidden">
-        <button id="loadingRetry" class="primary">다시 시도</button>
-        <button id="loadingDemo" class="secondary">카메라 없이 체험</button>
+        <button id="loadingRetry" class="primary" type="button">🔄 다시 해보기</button>
+        <button id="loadingDemo" class="secondary" type="button">👀 구경하기</button>
       </div>
     </section>
 
-    <section id="calibrate" class="panel compact hidden">
-      <p class="eyebrow">BODY CHECK</p>
-      <h2 id="calibrateTitle">카메라에서 조금 뒤로 서세요</h2>
-      <div class="signal"><span id="signalBar"></span></div>
-      <p id="calibrateText">몸을 찾고 있습니다…</p>
-      <small id="calibrateDetail">머리부터 발목까지 보여야 정확합니다.</small>
+    <section id="calibrate" class="panel compact hidden" aria-live="polite">
+      <p class="eyebrow">카메라 몸 찾기</p>
+      <h2 id="calibrateTitle">조금 뒤로 가볼까요?</h2>
+      <div class="signal" aria-hidden="true"><span id="signalBar"></span></div>
+      <p id="calibrateText">몸을 찾고 있어요!</p>
+      <small id="calibrateDetail">머리부터 발끝까지 화면에 보여 주세요.</small>
     </section>
 
     <div id="countdown" class="countdown hidden" aria-live="assertive"></div>
-    <img id="motionArt" class="motion-art hidden" src="assets/game-sequence.webp" alt="현재 게임 동작 안내">
-    <div id="cue" class="cue hidden"><small>NEXT MOVE</small><strong></strong><span></span></div>
+    <img id="motionArt" class="motion-art hidden" src="assets/kid-picture-pick-v1.webp" alt="현재 영어 놀이 동작 안내">
+    <div id="cue" class="cue hidden" role="status"><small>이렇게 해요!</small><strong></strong><span></span><button id="listenBtn" class="listen-btn hidden" type="button" aria-label="영어 안내 다시 듣기">🔊 다시 듣기</button></div>
     <div id="toast" class="toast" aria-live="polite"></div>
 
     <section id="result" class="panel result-panel hidden">
-      <p class="eyebrow">SESSION COMPLETE</p>
-      <h2 id="resultTitle">움직임 완료!</h2>
-      <div class="grade" id="grade">A</div>
+      <p class="eyebrow">오늘의 영어 놀이 끝!</p>
+      <h2 id="resultTitle">정말 잘했어요!</h2>
+      <div class="grade" id="grade" aria-label="칭찬 스티커">🌟</div>
       <div class="result-grid">
-        <div><small>최종 점수</small><strong id="finalScore">0</strong></div>
-        <div><small>정확도</small><strong id="accuracy">0%</strong></div>
-        <div><small>최대 콤보</small><strong id="maxCombo">0</strong></div>
+        <div><small>모은 별</small><strong id="finalScore">0개</strong></div>
+        <div><small>도전 횟수</small><strong id="accuracy">0번</strong></div>
+        <div><small>최고 연속</small><strong id="maxCombo">0</strong></div>
       </div>
-      <button id="retryBtn" class="primary">다시 도전 <span>↻</span></button>
-      <button id="menuBtn" class="secondary result-menu">다른 게임 선택</button>
+      <button id="retryBtn" class="primary" type="button">🌟 한 번 더!</button>
+      <button id="menuBtn" class="secondary result-menu" type="button">🏠 다른 놀이 고르기</button>
     </section>
 
-    <aside id="demoHelp" class="demo-help hidden">체험 모드 · 타깃 클릭 / <kbd>S</kbd> 스쿼트 / <kbd>J</kbd> 팔벌려뛰기</aside>
-    <footer>FULL BODY TRACKING <i></i> 4 MOTION GAMES</footer>
+    <aside id="demoHelp" class="demo-help hidden">체험 중이에요 · 화면을 눌러서 놀아요!</aside>
+    <footer><span aria-hidden="true">🌱</span> 움직이고 · 듣고 · 말하며 배우는 영어</footer>
   </main>
   <script type="module" src="app.js"></script>
 </body>

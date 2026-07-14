@@ -10,12 +10,13 @@ const ui = {
   calibrateText: $("#calibrateText"), calibrateDetail: $("#calibrateDetail"), signal: $("#signalBar"),
   countdown: $("#countdown"), result: $("#result"), resultTitle: $("#resultTitle"), cue: $("#cue"),
   toast: $("#toast"), demoHelp: $("#demoHelp"), motionArt: $("#motionArt"), tracking: $("#trackingStatus"),
+  listen: $("#listenBtn"), home: $("#homeBtn"),
   score: $("#score"), combo: $("#combo"), time: $("#time"), finalScore: $("#finalScore"),
   accuracy: $("#accuracy"), maxCombo: $("#maxCombo"), grade: $("#grade")
 };
 
 const bg = new Image();
-bg.src = "assets/neon-arena.webp";
+bg.src = "assets/kid-playroom-bg-v1.webp";
 
 const CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35";
 const MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
@@ -25,18 +26,28 @@ const POSE_JOINTS = [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, L
 const ARM_JOINTS = new Set([LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw]);
 const LEG_JOINTS = new Set([LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
 const MAJOR_JOINTS = new Set([LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
-const SLOT_POSITIONS = [[.18,.30],[.50,.25],[.82,.30],[.20,.53],[.80,.53],[.24,.76],[.50,.72],[.76,.76]];
-const LANDSCAPE_SLOT_POSITIONS = [[.12,.52],[.37,.52],[.63,.52],[.88,.52],[.20,.78],[.50,.78],[.80,.78]];
-const LANDSCAPE_MATH_POSITIONS = [[.15,.54],[.50,.54],[.85,.54],[.30,.78],[.70,.78]];
+const POSE_INFERENCE_INTERVAL = 60;
+const TOUCH_DWELL_MS = 140;
+const TOUCH_REARM_MS = 90;
+const WORDS = [
+  { word: "CAT", emoji: "🐱", ko: "고양이" },
+  { word: "DOG", emoji: "🐶", ko: "강아지" },
+  { word: "SUN", emoji: "☀️", ko: "해" },
+  { word: "BUS", emoji: "🚌", ko: "버스" },
+  { word: "FISH", emoji: "🐟", ko: "물고기" },
+  { word: "MILK", emoji: "🥛", ko: "우유" },
+  { word: "STAR", emoji: "⭐", ko: "별" },
+  { word: "BIRD", emoji: "🐦", ko: "새" }
+];
 
 const games = {
-  sequence: { name: "ORDER TOUCH", ms: 60000, image: "assets/game-sequence.webp", fullBody: false, description: "1번부터 차례대로 찾아 손으로 터치하세요." },
-  math: { name: "MATH HIT", ms: 60000, image: "assets/game-math.webp", fullBody: false, description: "덧셈을 계산하고 정답 숫자를 손으로 터치하세요." },
-  squat: { name: "SQUAT COUNT", ms: 45000, image: "assets/game-squat.webp", fullBody: true, description: "무릎 각도와 엉덩이 깊이를 확인해 정확한 스쿼트만 셉니다." },
-  jack: { name: "JUMPING JACK", ms: 45000, image: "assets/game-jack.webp", fullBody: true, description: "팔과 다리를 함께 벌렸다 모아야 1회로 인정됩니다." }
+  sequence: { name: "SPELL POP", ms: 60000, image: "assets/kid-spell-pop-v1.webp", fullBody: false, description: "그림을 보고 알파벳을 차례대로 톡톡 터치해요." },
+  math: { name: "PICTURE PICK", ms: 60000, image: "assets/kid-picture-pick-v1.webp", fullBody: false, description: "그림과 같은 영어 단어를 손으로 골라요." },
+  squat: { name: "MOVE & SAY · SQUAT", ms: 45000, image: "assets/kid-squat-v1.webp", fullBody: true, description: "SQUAT을 듣고 앉았다 일어나며 영어와 친해져요." },
+  jack: { name: "MOVE & SAY · STAR JUMP", ms: 45000, image: "assets/kid-star-jump-v1.webp", fullBody: true, description: "OPEN, CLOSE를 들으며 신나는 별 점프를 해요." }
 };
 
-let selectedGame = "sequence";
+let selectedGame = "math";
 let stream = null;
 let poseLandmarker = null;
 let poseLoading = null;
@@ -71,6 +82,12 @@ let inputLockedUntil = 0;
 let cameraAttemptId = 0;
 let countdownAttemptId = 0;
 let forceCpuPose = false;
+let poseInferenceBusy = false;
+let selfTesting = false;
+let adaptiveInferenceInterval = POSE_INFERENCE_INTERVAL;
+let lastUsablePoseAt = 0;
+let speechRoundToken = 0;
+let trackingWasPaused = false;
 
 const hide = (...elements) => elements.forEach((el) => el?.classList.add("hidden"));
 const show = (...elements) => elements.forEach((el) => el?.classList.remove("hidden"));
@@ -85,6 +102,25 @@ const shuffle = (items) => {
   }
   return copy;
 };
+
+function chooseWord(previousWord = "", offset = 0) {
+  const pool = WORDS.filter((item) => item.word !== previousWord);
+  return pool[(Math.floor(Math.random() * pool.length) + offset) % pool.length];
+}
+
+function speakEnglish(text, interrupt = false) {
+  if (!sound || selfTesting || !text || !window.speechSynthesis || !window.SpeechSynthesisUtterance) return false;
+  try {
+    if (interrupt) speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-US";
+    utterance.rate = .78;
+    utterance.pitch = 1.16;
+    utterance.volume = .9;
+    speechSynthesis.speak(utterance);
+    return true;
+  } catch { return false; }
+}
 
 function resize() {
   const bounds = app.getBoundingClientRect();
@@ -118,10 +154,13 @@ addEventListener("orientationchange", () => {
   calibrationGoodSince = null;
   setTimeout(() => {
     resize();
-    if (stream && !demo && (running || countdownActive)) {
-      beginCalibration();
-      startRenderLoop();
-      showToast("화면 방향이 바뀌어 몸 위치를 다시 확인합니다");
+    if (stream && !demo && (running || countdownActive || calibrating)) {
+      lastPose = null;
+      lastWorldPose = null;
+      poseTimestamp = 0;
+      if (running) rearmGameInput();
+      setTracking("다시 찾는 중", "warn");
+      showToast("화면이 돌아갔어요 · 그대로 이어서 해요");
     }
   }, 180);
 });
@@ -180,8 +219,8 @@ async function loadPose() {
 async function openCamera(attemptId) {
   const portrait = matchMedia("(orientation: portrait)").matches;
   const preferred = {
-    facingMode: { ideal: "user" }, width: { ideal: portrait ? 960 : 1280 }, height: { ideal: portrait ? 1280 : 960 },
-    aspectRatio: { ideal: portrait ? .75 : 1.333 }, frameRate: { ideal: 24, max: 30 }, resizeMode: { ideal: "none" }
+    facingMode: { ideal: "user" }, width: { ideal: portrait ? 480 : 640 }, height: { ideal: portrait ? 640 : 480 },
+    aspectRatio: { ideal: portrait ? .75 : 1.333 }, frameRate: { ideal: 20, max: 24 }, resizeMode: { ideal: "none" }
   };
   let nextStream;
   try {
@@ -246,7 +285,7 @@ function showCameraError(error) {
 async function startCamera() {
   const attemptId = ++cameraAttemptId;
   hide(ui.intro, ui.result, ui.loadingActions);
-  show(ui.loading);
+  show(ui.loading, ui.home);
   ui.loading.querySelector(".loader").classList.remove("hidden");
   ui.loadingTitle.textContent = "카메라 연결 중";
   ui.loadingText.textContent = "전체 화면을 유지하는 광각 모드로 준비하고 있습니다.";
@@ -288,42 +327,62 @@ function beginCalibration() {
   hide(ui.countdown);
   calibrationGoodSince = null;
   ui.signal.style.width = "0%";
-  ui.calibrateTitle.textContent = games[selectedGame].fullBody ? "발목까지 보이게 뒤로 서세요" : "상체와 양손이 보이게 서세요";
-  ui.calibrateDetail.textContent = games[selectedGame].fullBody ? "머리부터 발목까지 화면 안에 들어와야 시작됩니다." : "머리·어깨·양손·허리가 화면 안에 들어와야 시작됩니다.";
-  show(ui.calibrate);
+  ui.calibrateTitle.textContent = games[selectedGame].fullBody ? "발목까지 보이게 뒤로 서세요" : "상체와 한 손을 보여주세요";
+  ui.calibrateDetail.textContent = games[selectedGame].fullBody ? "머리부터 발목까지 화면 안에 들어오면 바로 시작해요." : "머리·어깨와 한 손만 보여도 시작할 수 있어요.";
+  show(ui.calibrate, ui.home);
   setTracking("몸 위치 확인 중", "warn");
 }
 
 function requiredIndices(game = selectedGame, calibration = false) {
   if (game === "squat") return [LM.nose, LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra];
   if (game === "jack") return [LM.nose, LM.ls, LM.rs, LM.lw, LM.rw, LM.lh, LM.rh, LM.la, LM.ra];
-  const core = [LM.nose, LM.ls, LM.rs, LM.lh, LM.rh];
-  return calibration ? [...core, LM.lw, LM.rw] : core;
+  const core = [LM.nose, LM.ls, LM.rs];
+  return core;
 }
 
 function landmarkVisible(landmark, minimum = .48) {
   return !!landmark && (landmark.visibility ?? 1) >= minimum && (landmark.presence ?? 1) >= minimum;
 }
 
+function landmarkInFrame(landmark, margin = .025) {
+  return landmarkVisible(landmark, .30)
+    && landmark.x >= margin && landmark.x <= 1 - margin
+    && landmark.y >= margin && landmark.y <= 1 - margin;
+}
+
 function analyzeFit() {
   if (!lastPose || performance.now() - poseTimestamp > 550) return { good: false, title: "몸을 찾고 있어요", text: "카메라 정면에 서 주세요." };
   const needed = requiredIndices(selectedGame, true);
-  if (!needed.every((index) => landmarkVisible(lastPose[index]))) {
-    return { good: false, title: games[selectedGame].fullBody ? "발목까지 보여주세요" : "양손을 화면 안에 보여주세요", text: "카메라에서 1~2걸음 뒤로 이동하세요." };
+  const visibility = games[selectedGame].fullBody ? .40 : .36;
+  const handVisible = [LM.lw, LM.rw].some((index) => landmarkInFrame(lastPose[index]));
+  if (!needed.every((index) => landmarkVisible(lastPose[index], visibility)) || (!games[selectedGame].fullBody && !handVisible)) {
+    return { good: false, title: games[selectedGame].fullBody ? "발목까지 보여주세요" : "한 손을 흔들어 주세요", text: "카메라 정면에서 손을 들어 보여주세요." };
   }
   const points = needed.map((index) => lastPose[index]);
   const minX = Math.min(...points.map((p) => p.x)), maxX = Math.max(...points.map((p) => p.x));
   const minY = Math.min(...points.map((p) => p.y)), maxY = Math.max(...points.map((p) => p.y));
-  const bodyHeight = maxY - minY;
-  const centerX = (minX + maxX) / 2;
-  const edge = selectedGame === "jack" ? .06 : games[selectedGame].fullBody ? .04 : .03;
-  const maxHeight = selectedGame === "jack" ? .72 : selectedGame === "squat" ? .86 : .78;
-  const tooClose = bodyHeight > maxHeight || minX < edge || maxX > 1 - edge || minY < edge * .65 || maxY > 1 - edge * .4;
-  const tooFar = bodyHeight < (games[selectedGame].fullBody ? .42 : .27);
+  let centerX;
+  let tooClose;
+  let tooFar;
+  if (games[selectedGame].fullBody) {
+    const bodyHeight = maxY - minY;
+    const edge = selectedGame === "jack" ? .06 : .04;
+    const maxHeight = selectedGame === "jack" ? .78 : .90;
+    centerX = (minX + maxX) / 2;
+    tooClose = bodyHeight > maxHeight || minX < edge || maxX > 1 - edge || minY < edge * .65 || maxY > 1 - edge * .4;
+    tooFar = bodyHeight < .36;
+  } else {
+    const leftShoulder = lastPose[LM.ls];
+    const rightShoulder = lastPose[LM.rs];
+    const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x);
+    centerX = (leftShoulder.x + rightShoulder.x) / 2;
+    tooClose = shoulderWidth > .58 || minY < .025;
+    tooFar = shoulderWidth < .10;
+  }
   if (tooClose) return { good: false, title: "카메라가 너무 가까워요", text: "전신이 잘리지 않게 1~2걸음 뒤로 이동하세요." };
   if (tooFar) return { good: false, title: "몸이 너무 작게 보여요", text: "한 걸음만 앞으로 이동하세요." };
-  if (centerX < .31) return { good: false, title: "화면 오른쪽으로 이동", text: "몸을 안내선 가운데에 맞춰 주세요." };
-  if (centerX > .69) return { good: false, title: "화면 왼쪽으로 이동", text: "몸을 안내선 가운데에 맞춰 주세요." };
+  if (centerX < .25) return { good: false, title: "화면 오른쪽으로 이동", text: "몸을 안내선 가운데에 맞춰 주세요." };
+  if (centerX > .75) return { good: false, title: "화면 왼쪽으로 이동", text: "몸을 안내선 가운데에 맞춰 주세요." };
   return { good: true, title: "좋아요, 그대로!", text: "잠시 자세를 유지하면 시작합니다." };
 }
 
@@ -338,9 +397,9 @@ function updateCalibration(now) {
     return;
   }
   calibrationGoodSince ??= now;
-  const progress = clamp((now - calibrationGoodSince) / 1200, 0, 1);
+  const progress = clamp((now - calibrationGoodSince) / 650, 0, 1);
   ui.signal.style.width = `${progress * 100}%`;
-  setTracking(`전신 인식 ${Math.round(progress * 100)}%`, "good");
+  setTracking(`카메라 인식 ${Math.round(progress * 100)}%`, "good");
   if (progress >= 1 && !countdownActive) {
     calibrating = false;
     hide(ui.calibrate);
@@ -353,6 +412,7 @@ async function startCountdown() {
   const attemptId = ++countdownAttemptId;
   countdownActive = true;
   hide(ui.calibrate, ui.loading, ui.intro, ui.result);
+  show(ui.home);
   for (const value of [3, 2, 1]) {
     ui.countdown.textContent = value;
     show(ui.countdown);
@@ -377,7 +437,7 @@ function startDemo() {
   demo = true;
   calibrating = false;
   hide(ui.intro, ui.loading, ui.result, ui.calibrate, ui.loadingActions);
-  show(ui.demoHelp);
+  show(ui.demoHelp, ui.home);
   setTracking("체험 모드", "good");
   startRenderLoop();
   startCountdown();
@@ -386,6 +446,9 @@ function startDemo() {
 function resetScore() {
   score = combo = maxCombo = hits = misses = 0;
   gameElapsed = 0;
+  lastUsablePoseAt = 0;
+  trackingWasPaused = false;
+  adaptiveInferenceInterval = POSE_INFERENCE_INTERVAL;
   inputLockedUntil = 0;
   particles = [];
   ripples = [];
@@ -393,15 +456,56 @@ function resetScore() {
   wristTrails = { [LM.lw]: [], [LM.rw]: [] };
 }
 
+function rearmGameInput() {
+  if (!gameState) return;
+  inputLockedUntil = performance.now() + 120;
+  wristTrails = { [LM.lw]: [], [LM.rw]: [] };
+  if (selectedGame === "sequence" || selectedGame === "math") {
+    gameState.targets?.forEach((target) => target.dwell = 0);
+    gameState.inputReady = false;
+    gameState.clearMs = 0;
+  } else if (selectedGame === "squat") {
+    gameState.phase = "needStand";
+    gameState.stableMs = 0;
+    gameState.baselineHipY = null;
+    gameState.depth = 0;
+  } else if (selectedGame === "jack") {
+    gameState.phase = "needClosed";
+    gameState.stableMs = 0;
+    gameState.armsOpen = false;
+    gameState.legsOpen = false;
+  }
+  updateGameCue();
+}
+
 function beginGame() {
   resetScore();
   running = true;
   gameState = createGameState(selectedGame);
   ui.motionArt.src = games[selectedGame].image;
-  show(ui.cue, ui.motionArt);
+  show(ui.cue, ui.motionArt, ui.listen);
   updateHUD();
   updateGameCue();
+  scheduleRoundAnnouncement(180);
   navigator.wakeLock?.request("screen").then((lock) => wakeLock = lock).catch(() => {});
+}
+
+function announceRound() {
+  if (!gameState) return false;
+  if (selectedGame === "sequence") return speakEnglish(`Spell ${gameState.prompt.word}`, true);
+  if (selectedGame === "math") return speakEnglish(`Find ${gameState.prompt.word}`, true);
+  if (selectedGame === "squat") return speakEnglish("Squat. Down and up!", true);
+  return speakEnglish("Star jump. Open and close!", true);
+}
+
+function scheduleRoundAnnouncement(delay = 0) {
+  const token = ++speechRoundToken;
+  const mode = selectedGame;
+  const word = gameState?.prompt?.word || "";
+  setTimeout(() => {
+    if (token !== speechRoundToken || !running || selectedGame !== mode || (word && gameState?.prompt?.word !== word)) return;
+    announceRound();
+  }, delay);
 }
 
 function createGameState(game) {
@@ -411,36 +515,31 @@ function createGameState(game) {
   return { phase: "needClosed", reps: 0, stableMs: 0, armsOpen: false, legsOpen: false };
 }
 
-function createSequenceRound(round) {
-  const count = Math.min(7, 4 + Math.floor((round - 1) / 2));
-  const availableSlots = viewH < 420 && viewW > viewH ? LANDSCAPE_SLOT_POSITIONS : SLOT_POSITIONS;
-  const slots = shuffle(availableSlots).slice(0, count);
+function sequenceSlots(count) {
+  if (count <= 3) return [[.18, .56], [.50, .56], [.82, .56]].slice(0, count);
+  if (count === 4) return [[.22, .47], [.78, .47], [.22, .83], [.78, .83]];
+  return [[.16, .47], [.50, .47], [.84, .47], [.32, .83], [.68, .83]].slice(0, count);
+}
+
+function createSequenceRound(round, previousWord = "") {
+  const prompt = chooseWord(previousWord, round - 1);
+  const letters = [...prompt.word];
+  const count = letters.length;
+  const slots = sequenceSlots(count);
   return {
-    mode: "sequence", round, current: 1, inputReady: false, clearMs: 0,
-    targets: slots.map(([x, y], index) => ({ value: index + 1, x, y, dwell: 0, flashUntil: 0 }))
+    mode: "sequence", round, prompt, current: 1, inputReady: false, clearMs: 0,
+    targets: slots.map(([x, y], index) => ({ value: letters[index], order: index + 1, x, y, dwell: 0, flashUntil: 0 }))
   };
 }
 
-function createMathProblem() {
-  const level = hits < 4 ? 9 : hits < 10 ? 19 : 39;
-  const a = 1 + Math.floor(Math.random() * level);
-  const b = 1 + Math.floor(Math.random() * level);
-  const answer = a + b;
-  const values = new Set([answer]);
-  const offsets = shuffle([-10,-5,-3,-2,-1,1,2,3,5,10]);
-  for (const offset of offsets) {
-    const value = answer + offset;
-    if (value >= 0 && value <= 99) values.add(value);
-    if (values.size === 3) break;
-  }
-  while (values.size < 3) values.add((answer + values.size + 1) % 100);
-  const mathPositions = viewH < 420 && viewW > viewH
-    ? LANDSCAPE_MATH_POSITIONS
-    : [[.20,.38],[.80,.38],[.50,.70],[.22,.72],[.78,.72]];
-  const slots = shuffle(mathPositions).slice(0, 3);
+function createMathProblem(previousWord = "") {
+  const prompt = chooseWord(previousWord, hits);
+  const answer = prompt.word;
+  const values = [answer, ...shuffle(WORDS.filter((item) => item.word !== answer)).slice(0, 1).map((item) => item.word)];
+  const slots = [[.25, .64], [.75, .64]];
   return {
-    mode: "math", a, b, answer, inputReady: false, clearMs: 0, startedAt: gameElapsed,
-    targets: shuffle([...values]).map((value, index) => ({ value, x: slots[index][0], y: slots[index][1], dwell: 0, flashUntil: 0 }))
+    mode: "math", prompt, answer, inputReady: false, clearMs: 0, startedAt: gameElapsed,
+    targets: shuffle(values).map((value, index) => ({ value, x: slots[index][0], y: slots[index][1], dwell: 0, flashUntil: 0 }))
   };
 }
 
@@ -451,10 +550,21 @@ function targetPoint(target) {
 function targetRadius() {
   const points = posePoints();
   const shoulder = points ? distance(points.ls, points.rs) : playRect.w * .2;
-  if (viewH < 420 && viewW > viewH) return clamp(shoulder * .34, 28, 34);
-  const minimum = viewW < 700 ? clamp(playRect.w * .105, 26, 38) : 44;
-  const maximum = viewW < 700 ? clamp(playRect.w * .16, 34, 58) : Math.min(76, playRect.w * .16);
-  return clamp(shoulder * .38, minimum, Math.max(minimum, maximum));
+  if (viewH < 420 && viewW > viewH) return clamp(shoulder * .34, 26, 30);
+  if (viewW < 700) {
+    const minimum = selectedGame === "math" ? 36 : 34;
+    const maximum = selectedGame === "math" ? 42 : 40;
+    return clamp(shoulder * .42, minimum, maximum);
+  }
+  return clamp(shoulder * .46, selectedGame === "math" ? 50 : 44, selectedGame === "math" ? 62 : 56);
+}
+
+function pointInsideTarget(point, target, radius = targetRadius(), outsideScale = 1) {
+  const center = targetPoint(target);
+  const widthScale = selectedGame === "math" ? 1.45 : 1;
+  const dx = (point.x - center.x) / (radius * widthScale * outsideScale);
+  const dy = (point.y - center.y) / (radius * outsideScale);
+  return dx * dx + dy * dy <= 1;
 }
 
 function posePoint(index) {
@@ -491,21 +601,21 @@ function angle3D(a, b, c) {
 
 function handPositions(points) {
   if (!points) return [];
-  return [points.lw, points.rw].filter((point) => point && point.v >= .38);
+  return [points.lw, points.rw].filter((point) => point && point.v >= .30);
 }
 
 function handsOutsideAll(targets, hands, radius) {
-  return targets.every((target) => {
-    const point = targetPoint(target);
-    return hands.every((hand) => distance(hand, point) > radius * 1.3);
-  });
+  return targets.every((target) => hands.every((hand) => !pointInsideTarget(hand, target, radius, 1.18)));
 }
 
 function updateTouchReadiness(state, hands, radius, dt) {
   if (state.inputReady) return true;
-  if (handsOutsideAll(state.targets, hands, radius)) state.clearMs += dt;
+  const selectableTargets = state.mode === "sequence"
+    ? state.targets.filter((target) => target.order >= state.current)
+    : state.targets;
+  if (handsOutsideAll(selectableTargets, hands, radius)) state.clearMs += dt;
   else state.clearMs = 0;
-  if (state.clearMs >= 100) state.inputReady = true;
+  if (state.clearMs >= TOUCH_REARM_MS) state.inputReady = true;
   return state.inputReady;
 }
 
@@ -537,18 +647,16 @@ function award(points, x, y, label = "PERFECT", detail = "") {
   return gain;
 }
 
-function penalty(label = "다시!", x = null, y = null) {
+function penalty(label = "다시!", x = null, y = null, amount = 5) {
   misses++;
-  combo = 0;
-  score = Math.max(0, score - 30);
-  if (Number.isFinite(x) && Number.isFinite(y)) enqueueFeedback("bad", x, y, label, -30);
+  if (Number.isFinite(x) && Number.isFinite(y)) enqueueFeedback("try", x, y, label, 0);
   else showToast(label, true);
-  tone(115, .14, "sawtooth", .025);
+  tone(260, .08, "sine", .025);
 }
 
 function showToast(text, bad = false) {
   ui.toast.textContent = text;
-  ui.toast.style.color = bad ? "#ff6b7f" : "#c8ff3d";
+  ui.toast.style.color = bad ? "#9b651b" : "#28775f";
   ui.toast.classList.remove("show");
   void ui.toast.offsetWidth;
   ui.toast.classList.add("show");
@@ -556,17 +664,21 @@ function showToast(text, bad = false) {
 
 function completeSequenceTarget(target) {
   const point = targetPoint(target);
-  award(100, point.x, point.y, `${target.value}번 정답`, `ORDER ${target.value} ✓`);
+  const completedWord = gameState.prompt;
+  award(100, point.x, point.y, `${target.value} 좋아요!`, `${completedWord.word.slice(0, target.order)} ✓`);
+  speakEnglish(target.value);
   gameState.current++;
-  inputLockedUntil = performance.now() + (viewH < 420 && viewW > viewH ? 300 : 280);
+  inputLockedUntil = performance.now() + 150;
   gameState.inputReady = false;
   gameState.clearMs = 0;
   gameState.targets.forEach((item) => item.dwell = 0);
   if (gameState.current > gameState.targets.length) {
-    score += 200 + gameState.targets.length * 30;
+    score += 180 + gameState.targets.length * 20;
     const nextRound = gameState.round + 1;
-    showToast(`ROUND ${gameState.round} CLEAR!`);
-    gameState = createSequenceRound(nextRound);
+    showToast(`${completedWord.emoji} ${completedWord.word}!`);
+    speakEnglish(completedWord.word, true);
+    gameState = createSequenceRound(nextRound, completedWord.word);
+    scheduleRoundAnnouncement(720);
   }
   updateGameCue();
 }
@@ -575,16 +687,19 @@ function completeMathTarget(target) {
   const point = targetPoint(target);
   if (target.value !== gameState.answer) {
     target.flashUntil = performance.now() + 500;
-    penalty("오답! 다시 계산", point.x, point.y);
-    inputLockedUntil = performance.now() + 250;
+    penalty("한 번 더 골라봐요", point.x, point.y, 0);
+    inputLockedUntil = performance.now() + 110;
     gameState.inputReady = false;
     gameState.clearMs = 0;
     return;
   }
-  const responseBonus = Math.max(0, 100 - Math.floor((gameElapsed - gameState.startedAt) / 40));
-  award(140 + responseBonus, point.x, point.y, `${target.value} 정답`, `${gameState.a} + ${gameState.b} = ${gameState.answer} ✓`);
-  inputLockedUntil = performance.now() + (viewH < 420 && viewW > viewH ? 300 : 340);
-  gameState = createMathProblem();
+  const completedWord = gameState.prompt;
+  const responseBonus = Math.max(0, 40 - Math.floor((gameElapsed - gameState.startedAt) / 250));
+  award(140 + responseBonus, point.x, point.y, `${target.value} 정답!`, `${completedWord.emoji} ${completedWord.ko} = ${target.value}`);
+  speakEnglish(target.value, true);
+  inputLockedUntil = performance.now() + 180;
+  gameState = createMathProblem(completedWord.word);
+  scheduleRoundAnnouncement(700);
   updateGameCue();
 }
 
@@ -595,16 +710,18 @@ function updateTouchGame(dt) {
   const radius = targetRadius();
   if (!updateTouchReadiness(gameState, hands, radius, dt)) return;
   for (const target of gameState.targets) {
+    if (selectedGame === "sequence" && target.order < gameState.current) continue;
     const point = targetPoint(target);
-    const inside = hands.some((hand) => distance(hand, point) <= radius);
+    const inside = hands.some((hand) => pointInsideTarget(hand, target, radius));
     target.dwell = inside ? target.dwell + dt : Math.max(0, target.dwell - dt * 1.5);
-    if (target.dwell < 75) continue;
+    if (target.dwell < TOUCH_DWELL_MS) continue;
     if (selectedGame === "sequence") {
-      if (target.value === gameState.current) completeSequenceTarget(target);
+      if (target.order === gameState.current) completeSequenceTarget(target);
       else {
         target.flashUntil = performance.now() + 450;
-        penalty(`${gameState.current}번부터!`, point.x, point.y);
-        inputLockedUntil = performance.now() + 220;
+        const nextLetter = gameState.targets[gameState.current - 1]?.value || "";
+        penalty(`${nextLetter}부터 찾아봐요`, point.x, point.y, 0);
+        inputLockedUntil = performance.now() + 110;
         gameState.inputReady = false;
         gameState.clearMs = 0;
       }
@@ -644,7 +761,8 @@ function completeSquatRep() {
   gameState.reps++;
   const point = exerciseFeedbackPoint(.63);
   const angleLabel = `${Math.round((gameState.kneeAngle || 0) / 5) * 5}°`;
-  award(140, point.x, point.y, `${gameState.reps}회 스쿼트`, `무릎 ${angleLabel} · PERFECT`);
+  award(140, point.x, point.y, `SQUAT ${gameState.reps}!`, `앉았다 일어나기 · ${angleLabel}`);
+  speakEnglish("Great squat!");
   gameState.phase = "ready";
   gameState.stableMs = 0;
 }
@@ -663,10 +781,10 @@ function updateSquat(dt) {
 
   if (gameState.phase === "needStand") {
     gameState.stableMs = standing ? gameState.stableMs + dt : 0;
-    if (gameState.stableMs >= 220) { gameState.phase = "ready"; gameState.stableMs = 0; }
+    if (gameState.stableMs >= 180) { gameState.phase = "ready"; gameState.stableMs = 0; speakEnglish("Squat"); }
   } else if (gameState.phase === "ready") {
     gameState.stableMs = bottom ? gameState.stableMs + dt : 0;
-    if (gameState.stableMs >= 160) { gameState.phase = "down"; gameState.stableMs = 0; showToast("좋아요! 이제 일어서기"); }
+    if (gameState.stableMs >= 180) { gameState.phase = "down"; gameState.stableMs = 0; showToast("UP! 일어나요"); speakEnglish("Stand up"); }
   } else if (gameState.phase === "down") {
     gameState.stableMs = standing ? gameState.stableMs + dt : 0;
     if (gameState.stableMs >= 180) completeSquatRep();
@@ -690,7 +808,8 @@ function jackFeatures(points) {
 function completeJackRep() {
   gameState.reps++;
   const point = exerciseFeedbackPoint(.44);
-  award(160, point.x, point.y, `${gameState.reps}회 성공`, "팔·다리 COMPLETE ✓");
+  award(160, point.x, point.y, `STAR JUMP ${gameState.reps}!`, "OPEN + CLOSE · 참 잘했어요!");
+  speakEnglish("Great star jump!");
   gameState.phase = "ready";
   gameState.stableMs = 0;
 }
@@ -705,10 +824,10 @@ function updateJack(dt) {
   const closed = feature.armsClosed && feature.legsClosed;
   if (gameState.phase === "needClosed") {
     gameState.stableMs = closed ? gameState.stableMs + dt : 0;
-    if (gameState.stableMs >= 220) { gameState.phase = "ready"; gameState.stableMs = 0; }
+    if (gameState.stableMs >= 180) { gameState.phase = "ready"; gameState.stableMs = 0; speakEnglish("Open"); }
   } else if (gameState.phase === "ready") {
     gameState.stableMs = open ? gameState.stableMs + dt : 0;
-    if (gameState.stableMs >= 150) { gameState.phase = "open"; gameState.stableMs = 0; showToast("활짝! 이제 모으기"); }
+    if (gameState.stableMs >= 180) { gameState.phase = "open"; gameState.stableMs = 0; showToast("CLOSE! 모아요"); speakEnglish("Close"); }
   } else if (gameState.phase === "open") {
     gameState.stableMs = closed ? gameState.stableMs + dt : 0;
     if (gameState.stableMs >= 180) completeJackRep();
@@ -724,25 +843,32 @@ function updateGame(dt) {
 
 function updateGameCue() {
   if (!gameState) return;
-  if (selectedGame === "sequence") setCue(`${gameState.current}번을 터치`, `ROUND ${gameState.round} · ${gameState.current}/${gameState.targets.length}`);
-  else if (selectedGame === "math") setCue(`${gameState.a} + ${gameState.b} = ?`, "정답 숫자를 손으로 터치");
-  else if (selectedGame === "squat") setCue(gameState.phase === "down" ? "일어서세요!" : gameState.phase === "needStand" ? "먼저 바르게 서기" : "천천히 앉으세요", `${gameState.reps}회 완료`);
-  else setCue(gameState.phase === "open" ? "팔·다리 모으기!" : gameState.phase === "needClosed" ? "차렷 자세로 준비" : "팔·다리 함께 벌리기!", `${gameState.reps}회 완료`);
+  if (selectedGame === "sequence") {
+    const next = gameState.targets[gameState.current - 1]?.value || "";
+    setCue(`${gameState.prompt.emoji} ${gameState.prompt.ko} · ${next}를 찾아요!`, `SPELL ${gameState.prompt.word} · ${gameState.current}/${gameState.targets.length}`);
+  } else if (selectedGame === "math") {
+    setCue(`${gameState.prompt.emoji} ${gameState.prompt.ko}는 영어로?`, "손으로 맞는 단어를 톡!");
+  } else if (selectedGame === "squat") {
+    setCue(gameState.phase === "down" ? "UP! 일어나요" : gameState.phase === "needStand" ? "READY! 바르게 서요" : "SQUAT! 앉아요", `${gameState.reps}번 성공 · 듣고 따라 해요`);
+  } else {
+    setCue(gameState.phase === "open" ? "CLOSE! 모아요" : gameState.phase === "needClosed" ? "READY! 차렷" : "OPEN! 별처럼 활짝", `${gameState.reps}번 성공 · STAR JUMP`);
+  }
 }
 
 function poseUsable(now = performance.now()) {
   if (!lastPose || now - poseTimestamp > 550) return false;
-  if (!requiredIndices(selectedGame).every((index) => landmarkVisible(lastPose[index], .38))) return false;
+  if (!requiredIndices(selectedGame).every((index) => landmarkVisible(lastPose[index], .32))) return false;
   if (selectedGame === "sequence" || selectedGame === "math") {
-    return [LM.lw, LM.rw].some((index) => landmarkVisible(lastPose[index], .38));
+    return [LM.lw, LM.rw].some((index) => landmarkVisible(lastPose[index], .30));
   }
   return true;
 }
 
 function updateHUD() {
-  ui.score.textContent = String(score).padStart(5, "0");
-  ui.combo.textContent = `×${combo}`;
-  ui.time.textContent = Math.max(0, Math.ceil((games[selectedGame].ms - gameElapsed) / 1000));
+  const remaining = Math.max(0, Math.ceil((games[selectedGame].ms - gameElapsed) / 1000));
+  ui.score.textContent = `★ ${hits}`;
+  ui.combo.textContent = `🌟 ${combo}`;
+  ui.time.textContent = remaining <= 10 ? "마무리" : "놀이 중";
 }
 
 function smoothPose(raw, now) {
@@ -758,9 +884,11 @@ function smoothPose(raw, now) {
 }
 
 function detectPose(now) {
-  if (!poseLandmarker || video.readyState < 2 || video.currentTime === lastVideoTime || now - lastInferenceAt < 28) return;
+  if (poseInferenceBusy || !poseLandmarker || video.readyState < 2 || video.currentTime === lastVideoTime || now - lastInferenceAt < adaptiveInferenceInterval) return;
+  poseInferenceBusy = true;
   lastInferenceAt = now;
   lastVideoTime = video.currentTime;
+  const inferenceStartedAt = performance.now();
   try {
     const result = poseLandmarker.detectForVideo(video, now);
     const raw = result.landmarks?.[0];
@@ -785,6 +913,12 @@ function detectPose(now) {
       show(ui.loading);
       showCameraError({ name: "PoseRuntimeError" });
     }
+  } finally {
+    const inferenceCost = performance.now() - inferenceStartedAt;
+    adaptiveInferenceInterval = inferenceCost > 48
+      ? Math.min(100, adaptiveInferenceInterval + 8)
+      : Math.max(POSE_INFERENCE_INTERVAL, adaptiveInferenceInterval - 2);
+    poseInferenceBusy = false;
   }
 }
 
@@ -795,25 +929,22 @@ function drawBackground() {
     const w = bg.naturalWidth * scale, h = bg.naturalHeight * scale;
     ctx.drawImage(bg, (viewW - w) / 2, (viewH - h) / 2, w, h);
   } else {
-    ctx.fillStyle = "#05030b";
+    ctx.fillStyle = "#a8e9ff";
     ctx.fillRect(0, 0, viewW, viewH);
   }
   if (video.readyState >= 2 && !demo) {
     ctx.save();
-    ctx.globalAlpha = .78;
+    ctx.globalAlpha = .92;
     ctx.translate(cameraRect.x + cameraRect.w, cameraRect.y);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, cameraRect.w, cameraRect.h);
     ctx.restore();
-    ctx.fillStyle = "#05030a28";
+    ctx.fillStyle = "#fffaf010";
     ctx.fillRect(cameraRect.x, cameraRect.y, cameraRect.w, cameraRect.h);
-    ctx.strokeStyle = "#38f6ff66";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#ffffffdd";
+    ctx.lineWidth = 4;
     ctx.strokeRect(cameraRect.x, cameraRect.y, cameraRect.w, cameraRect.h);
-    ctx.fillStyle = "#38f6ff";
-    ctx.font = "700 10px IBM Plex Sans KR";
-    ctx.textAlign = "left";
-    ctx.fillText("FULL CAMERA · NO CROP", cameraRect.x + 10, cameraRect.y + 18);
+    drawCanvasPill(cameraRect.x + 70, cameraRect.y + 18, games[selectedGame].fullBody ? "몸을 크게 ⭐" : "손을 흔들어요 👋", "#28775f", true);
   }
 }
 
@@ -852,9 +983,9 @@ function jointVisualColor(index, signal = landmarkSignal(index)) {
   return "#dce7ef";
 }
 
-function drawCanvasPill(cx, cy, text, color = "#38f6ff", small = false) {
+function drawCanvasPill(cx, cy, text, color = "#28aeea", small = false) {
   ctx.save();
-  ctx.font = `700 ${small ? 9 : viewW < 700 ? 11 : 12}px IBM Plex Sans KR`;
+  ctx.font = `800 ${small ? 9 : viewW < 700 ? 11 : 12}px Nunito`;
   const width = clamp(ctx.measureText(text).width + (small ? 14 : 20), 44, viewW < 700 ? 150 : 190);
   const height = small ? 20 : 26;
   const x = clamp(cx - width / 2, cameraRect.x + 7, cameraRect.x + cameraRect.w - width - 7);
@@ -863,11 +994,11 @@ function drawCanvasPill(cx, cy, text, color = "#38f6ff", small = false) {
   ctx.beginPath();
   ctx.moveTo(x + cut, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width, y + height - cut);
   ctx.lineTo(x + width - cut, y + height); ctx.lineTo(x, y + height); ctx.lineTo(x, y + cut); ctx.closePath();
-  ctx.fillStyle = "#05040bdd";
+  ctx.fillStyle = "#fffaf0ed";
   ctx.strokeStyle = `${color}bb`;
   ctx.lineWidth = 1;
   ctx.fill(); ctx.stroke();
-  ctx.fillStyle = color;
+  ctx.fillStyle = "#27334d";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(text, x + width / 2, y + height / 2 + .5, width - 10);
@@ -951,14 +1082,14 @@ function drawHandCursors(now = performance.now()) {
   const hitRadius = targetRadius();
   for (const [index, baseColor] of [[LM.lw, "#38f6ff"], [LM.rw, "#ff3ea5"]]) {
     const point = posePoint(index);
-    if (!point || point.v < .38) continue;
+    if (!point || point.v < .30) continue;
     const trail = wristTrails[index];
     const last = trail[trail.length - 1];
     if (!last || distance(last, point) > 2 || now - last.t > 42) trail.push({ x: point.x, y: point.y, t: now });
     wristTrails[index] = trail.filter((sample) => now - sample.t < 330).slice(-10);
     const touching = !!gameState?.inputReady && gameState?.targets?.some((target) => {
-      if (selectedGame === "sequence" && target.value !== gameState.current) return false;
-      return distance(point, targetPoint(target)) <= hitRadius;
+      if (selectedGame === "sequence" && target.order !== gameState.current) return false;
+      return pointInsideTarget(point, target, hitRadius);
     });
     const color = touching ? "#ffb15b" : baseColor;
     ctx.save();
@@ -998,76 +1129,136 @@ function trackingSignal() {
 function drawTrackingSignal(now = performance.now()) {
   if (demo || !poseIsFresh(now)) return;
   const signal = trackingSignal();
-  const color = signal >= .65 ? "#c8ff3d" : signal >= .38 ? "#ffb15b" : "#ff6b7f";
+  const color = signal >= .65 ? "#c8ff3d" : signal >= .30 ? "#ffb15b" : "#ff6b7f";
   drawCanvasPill(cameraRect.x + cameraRect.w - 48, cameraRect.y + 17, `TRACK ${Math.round(signal * 100)}%`, color, true);
+}
+
+function roundedRectPath(x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, width, height, r);
+    return;
+  }
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
 }
 
 function drawTargetCircle(target, active = true) {
   const point = targetPoint(target);
   const radius = targetRadius();
+  const isWordChoice = selectedGame === "math";
+  const shapeW = isWordChoice ? radius * 2.9 : radius * 2;
+  const shapeH = isWordChoice ? radius * 1.65 : radius * 2;
   const now = performance.now();
   const wrong = now < target.flashUntil;
   const locked = gameState?.inputReady === false && !wrong;
-  const progress = clamp((target.dwell || 0) / 75, 0, 1);
-  const color = wrong ? "#ff4f70" : locked ? "#777283" : active ? (progress > .55 ? "#c8ff3d" : "#38f6ff") : "#5d5969";
+  const progress = clamp((target.dwell || 0) / TOUCH_DWELL_MS, 0, 1);
+  const color = wrong ? "#f2ad21" : locked ? "#9ba7b6" : active ? (progress > .55 ? "#39c594" : "#28aeea") : "#a9b4c5";
   const shake = wrong ? Math.sin((target.flashUntil - now) / 24) * Math.min(6, (target.flashUntil - now) / 50) : 0;
   ctx.save();
   ctx.translate(point.x + shake, point.y);
   ctx.shadowBlur = active && !locked ? (viewW < 700 ? 14 : 20) : 0;
   ctx.shadowColor = color;
-  ctx.fillStyle = `${color}22`;
+  ctx.fillStyle = wrong ? "#fff2c9ee" : locked ? "#eef2f5dd" : "#fffaf0ee";
   ctx.strokeStyle = color;
   ctx.lineWidth = active ? 4 : 2;
   if (locked) ctx.setLineDash([6, 6]);
-  ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  if (isWordChoice) roundedRectPath(-shapeW / 2, -shapeH / 2, shapeW, shapeH, shapeH * .42);
+  else { ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2); }
+  ctx.fill(); ctx.stroke();
   ctx.setLineDash([]);
   if (active && !locked) {
     ctx.globalAlpha = .4 + .22 * Math.sin(now / 120);
-    ctx.beginPath(); ctx.arc(0, 0, radius + 8, 0, Math.PI * 2); ctx.stroke();
+    if (isWordChoice) roundedRectPath(-shapeW / 2 - 7, -shapeH / 2 - 7, shapeW + 14, shapeH + 14, shapeH * .48);
+    else { ctx.beginPath(); ctx.arc(0, 0, radius + 8, 0, Math.PI * 2); }
+    ctx.stroke();
   }
   if (active && progress > 0) {
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = "#c8ff3d";
+    ctx.strokeStyle = "#39c594";
     ctx.lineWidth = 5;
     ctx.lineCap = "round";
     ctx.beginPath();
-    ctx.arc(0, 0, radius + 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+    if (isWordChoice) {
+      ctx.moveTo(-shapeW * .38, shapeH / 2 + 10);
+      ctx.lineTo(-shapeW * .38 + shapeW * .76 * progress, shapeH / 2 + 10);
+    } else {
+      ctx.arc(0, 0, radius + 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+    }
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
-  ctx.fillStyle = wrong ? "#ff8c9d" : "#fff";
-  ctx.font = `700 ${Math.round(radius * .72)}px IBM Plex Sans KR`;
+  ctx.fillStyle = wrong ? "#9b651b" : "#27334d";
+  ctx.font = `400 ${Math.round(radius * (isWordChoice ? .52 : .78))}px Jua`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   if (wrong) {
-    ctx.fillText("×", 0, 1);
-    ctx.font = `700 ${Math.round(radius * .38)}px IBM Plex Sans KR`;
-    ctx.fillText(target.value, 0, radius * .48);
+    ctx.fillText("↻", 0, isWordChoice ? -radius * .20 : 1);
+    ctx.font = `400 ${Math.round(radius * (isWordChoice ? .32 : .38))}px Jua`;
+    ctx.fillText(target.value, 0, isWordChoice ? radius * .32 : radius * .48);
   } else ctx.fillText(target.value, 0, 1);
+  ctx.restore();
+}
+
+function drawLearningPrompt() {
+  if (!gameState?.prompt || (selectedGame !== "sequence" && selectedGame !== "math")) return;
+  const compactLandscape = viewH < 420 && viewW > viewH;
+  const prompt = gameState.prompt;
+  const x = cameraRect.x + cameraRect.w / 2;
+  const y = cameraRect.y + (compactLandscape ? 28 : 42);
+  const progress = selectedGame === "sequence"
+    ? [...prompt.word].map((letter, index) => index < gameState.current - 1 ? letter : "_").join(" ")
+    : prompt.ko;
+  const text = `${prompt.emoji}  ${progress}`;
+  ctx.save();
+  ctx.font = `400 ${compactLandscape ? 18 : viewW < 700 ? 24 : 30}px Jua`;
+  const width = clamp(ctx.measureText(text).width + 30, 112, Math.max(112, cameraRect.w - 24));
+  const height = compactLandscape ? 34 : viewW < 700 ? 48 : 58;
+  roundedRectPath(x - width / 2, y - height / 2, width, height, height / 2);
+  ctx.fillStyle = "#fffaf0f2";
+  ctx.strokeStyle = "#ffd65a";
+  ctx.lineWidth = 2;
+  ctx.shadowBlur = 12;
+  ctx.shadowColor = "#ffd65a66";
+  ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#27334d";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x, y + 1, width - 18);
   ctx.restore();
 }
 
 function drawTouchGame() {
   if (!gameState?.targets) return;
   for (const target of gameState.targets) {
-    const active = selectedGame === "math" || target.value === gameState.current;
-    const completed = selectedGame === "sequence" && target.value < gameState.current;
+    const active = selectedGame === "math" || target.order === gameState.current;
+    const completed = selectedGame === "sequence" && target.order < gameState.current;
     if (!completed) drawTargetCircle(target, active);
     else {
       const point = targetPoint(target);
       const radius = targetRadius() * .48;
       ctx.save();
-      ctx.fillStyle = "#c8ff3d22";
-      ctx.strokeStyle = "#c8ff3d";
+      ctx.fillStyle = "#e7fff5ee";
+      ctx.strokeStyle = "#39c594";
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(point.x, point.y, radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = "#fff";
-      ctx.font = `700 ${Math.round(radius * .9)}px IBM Plex Sans KR`;
+      ctx.fillStyle = "#27334d";
+      ctx.font = `400 ${Math.round(radius * .9)}px Jua`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(target.value, point.x, point.y + 1);
-      ctx.fillStyle = "#c8ff3d";
-      ctx.font = `700 ${Math.round(radius * .68)}px IBM Plex Sans KR`;
+      ctx.fillStyle = "#39c594";
+      ctx.font = `700 ${Math.round(radius * .68)}px Nunito`;
       ctx.fillText("✓", point.x + radius * .7, point.y - radius * .65);
       ctx.restore();
     }
@@ -1098,7 +1289,7 @@ function drawExerciseGame() {
   ctx.shadowBlur = 0;
   ctx.fillStyle = "#fff";
   ctx.font = "700 11px IBM Plex Sans KR";
-  ctx.fillText("REPS", x, y + 24);
+  ctx.fillText(selectedGame === "squat" ? "SQUATS" : "STAR JUMPS", x, y + 24);
   if (selectedGame === "squat") {
     const compactLandscape = viewH < 420 && viewW > viewH;
     const barH = compactLandscape
@@ -1110,9 +1301,9 @@ function drawExerciseGame() {
     ctx.fillRect(x - 5, y + 49 + barH * (1 - gameState.depth), 10, barH * gameState.depth);
   } else {
     ctx.fillStyle = gameState.armsOpen ? "#c8ff3d" : "#ffb15b";
-    ctx.fillText(gameState.armsOpen ? "팔 ✓" : "팔 ·", x - 28, y + 54);
+    ctx.fillText(gameState.armsOpen ? "OPEN ✓" : "팔 ·", x - 28, y + 54);
     ctx.fillStyle = gameState.legsOpen ? "#c8ff3d" : "#8a5cff";
-    ctx.fillText(gameState.legsOpen ? "다리 ✓" : "다리 ·", x + 30, y + 54);
+    ctx.fillText(gameState.legsOpen ? "OPEN ✓" : "다리 ·", x + 36, y + 54);
   }
   ctx.restore();
 }
@@ -1129,16 +1320,16 @@ function drawCalibrationGuide() {
 
 function drawFeedbackCard(feedback, ringRadius, alpha) {
   const compactLandscape = viewH < 420 && viewW > viewH;
-  const color = feedback.type === "good" ? "#c8ff3d" : "#ff4f70";
+  const color = feedback.type === "good" ? "#39c594" : "#f2ad21";
   const title = compactLandscape && feedback.detail
-    ? `✓ ${feedback.detail}  +${feedback.gain}`
-    : feedback.type === "good" ? `✓ ${feedback.label}  +${feedback.gain}` : `× ${feedback.label}`;
-  const detail = compactLandscape ? "" : feedback.detail || (feedback.type === "bad" ? "-30 POINT" : "");
+    ? `⭐ ${feedback.detail}  +${feedback.gain}`
+    : feedback.type === "good" ? `⭐ ${feedback.label}  +${feedback.gain}` : `↻ ${feedback.label}`;
+  const detail = compactLandscape ? "" : feedback.detail || (feedback.type !== "good" ? "괜찮아요 · 한 번 더!" : "");
   const titleSize = compactLandscape ? 12 : viewW < 700 ? 14 : 17;
   const detailSize = viewW < 700 ? 9 : 10;
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.font = `700 ${titleSize}px IBM Plex Sans KR`;
+  ctx.font = `400 ${titleSize}px Jua`;
   const titleWidth = ctx.measureText(title).width;
   ctx.font = `700 ${detailSize}px IBM Plex Sans KR`;
   const detailWidth = detail ? ctx.measureText(detail).width : 0;
@@ -1153,7 +1344,7 @@ function drawFeedbackCard(feedback, ringRadius, alpha) {
   ctx.beginPath();
   ctx.moveTo(x + cut, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width, y + height - cut);
   ctx.lineTo(x + width - cut, y + height); ctx.lineTo(x, y + height); ctx.lineTo(x, y + cut); ctx.closePath();
-  ctx.fillStyle = "#05040be8";
+  ctx.fillStyle = "#fffaf0f2";
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
   ctx.shadowBlur = 10;
@@ -1161,13 +1352,13 @@ function drawFeedbackCard(feedback, ringRadius, alpha) {
   ctx.fill(); ctx.stroke();
   ctx.shadowBlur = 0;
   ctx.fillStyle = color;
-  ctx.font = `700 ${titleSize}px IBM Plex Sans KR`;
+  ctx.font = `400 ${titleSize}px Jua`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(title, x + width / 2, y + (detail ? 15 : height / 2), width - 12);
   if (detail) {
-    ctx.fillStyle = "#f6f4ff";
-    ctx.font = `700 ${detailSize}px IBM Plex Sans KR`;
+    ctx.fillStyle = "#5f6c84";
+    ctx.font = `800 ${detailSize}px Nunito`;
     ctx.fillText(detail, x + width / 2, y + 31, width - 12);
   }
   ctx.restore();
@@ -1175,8 +1366,9 @@ function drawFeedbackCard(feedback, ringRadius, alpha) {
 
 function drawFeedbacks(now = performance.now()) {
   const compactLandscape = viewH < 420 && viewW > viewH;
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const newestGood = [...feedbacks].reverse().find((feedback) => feedback.type === "good");
-  if (newestGood) {
+  if (newestGood && !reduceMotion) {
     const flashAge = now - newestGood.startedAt;
     if (flashAge >= 0 && flashAge < 190) {
       const alpha = (1 - flashAge / 190) * .09;
@@ -1197,7 +1389,7 @@ function drawFeedbacks(now = performance.now()) {
   for (const feedback of feedbacks) {
     const progress = clamp((now - feedback.startedAt) / feedback.duration, 0, 1);
     if (progress >= 1) continue;
-    const color = feedback.type === "good" ? "#c8ff3d" : "#ff4f70";
+    const color = feedback.type === "good" ? "#39c594" : "#f2ad21";
     const fade = progress < .72 ? 1 : 1 - (progress - .72) / .28;
     const expansion = 1 - Math.pow(1 - progress, 3);
     const radius = feedback.radius * (1 + expansion * .5);
@@ -1221,8 +1413,7 @@ function drawFeedbacks(now = performance.now()) {
     if (feedback.type === "good") {
       ctx.moveTo(-radius * .34, 0); ctx.lineTo(-radius * .08, radius * .25); ctx.lineTo(radius * .38, -radius * .27);
     } else {
-      ctx.moveTo(-radius * .25, -radius * .25); ctx.lineTo(radius * .25, radius * .25);
-      ctx.moveTo(radius * .25, -radius * .25); ctx.lineTo(-radius * .25, radius * .25);
+      ctx.arc(0, 0, radius * .28, -.25, Math.PI * 1.55);
     }
     ctx.stroke();
     ctx.restore();
@@ -1234,7 +1425,7 @@ function drawFeedbacks(now = performance.now()) {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(
-        feedback.type === "good" ? `+${feedback.gain}` : "-30",
+        feedback.type === "good" ? `+${feedback.gain}` : "한 번 더!",
         feedback.x,
         feedback.y + radius * .55
       );
@@ -1269,13 +1460,13 @@ function drawEffects(frameDt = 16, now = performance.now()) {
 }
 
 function burst(x, y, color) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const compactLandscape = viewH < 420 && viewW > viewH;
   ripples.push({
     x, y, r: 8,
     maxR: compactLandscape ? clamp(targetRadius() * 1.35, 34, 40) : clamp(targetRadius() * 1.7, 50, 92),
     alpha: 1, color
   });
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const count = viewW < 700 ? 10 : 16;
   for (let i = 0; i < count; i++) {
     const angle = Math.random() * Math.PI * 2, speed = 2 + Math.random() * 7;
@@ -1285,16 +1476,17 @@ function burst(x, y, color) {
 }
 
 function drawTrackingPause() {
+  const fullBody = games[selectedGame].fullBody;
   ctx.save();
   ctx.fillStyle = "#030207aa";
   ctx.fillRect(0, 0, viewW, viewH);
   ctx.fillStyle = "#ffb15b";
   ctx.textAlign = "center";
   ctx.font = `700 ${viewW < 700 ? 22 : 30}px IBM Plex Sans KR`;
-  ctx.fillText("몸 전체를 다시 보여주세요", viewW / 2, viewH / 2);
+  ctx.fillText(fullBody ? "몸 전체를 다시 보여주세요" : "얼굴·어깨와 한 손을 보여주세요", viewW / 2, viewH / 2);
   ctx.fillStyle = "#c9c5d1";
   ctx.font = "400 13px IBM Plex Sans KR";
-  ctx.fillText("인식되는 동안 게임 시간은 멈춥니다", viewW / 2, viewH / 2 + 30);
+  ctx.fillText(fullBody ? "인식되는 동안 게임 시간은 멈춥니다" : "한 손이 다시 보이면 바로 이어져요", viewW / 2, viewH / 2 + 30);
   ctx.restore();
 }
 
@@ -1311,6 +1503,7 @@ function render(now) {
     const usable = demo || poseUsable(now);
     let trackingPaused = false;
     if (usable) {
+      lastUsablePoseAt = demo ? now : poseTimestamp;
       gameElapsed += frameDt;
       if (demo || poseVersion !== evaluatedPoseVersion) {
         const poseDt = demo ? frameDt : clamp(poseTimestamp - lastPoseEvalAt, 16, 80);
@@ -1319,10 +1512,14 @@ function render(now) {
         lastPoseEvalAt = poseTimestamp;
       }
       setTracking(demo ? "체험 모드" : "동작 인식 중", "good");
+    } else if (lastUsablePoseAt && now - lastUsablePoseAt < 750) {
+      setTracking("잠깐 다시 찾는 중", "warn");
     } else {
-      setTracking("몸 전체를 보여주세요", "warn");
+      setTracking(games[selectedGame].fullBody ? "몸 전체를 보여주세요" : "얼굴·어깨와 한 손을 보여주세요", "warn");
       trackingPaused = true;
     }
+    if (trackingPaused && !trackingWasPaused) rearmGameInput();
+    trackingWasPaused = trackingPaused;
     if (selectedGame === "sequence" || selectedGame === "math") drawTouchGame(); else drawExerciseGame();
     drawHandCursors(now);
     drawEffects(frameDt, now);
@@ -1345,14 +1542,15 @@ function startRenderLoop() {
 
 function endGame() {
   running = false;
-  hide(ui.cue, ui.demoHelp, ui.motionArt);
+  speechRoundToken++;
+  try { speechSynthesis.cancel(); } catch {}
+  hide(ui.cue, ui.demoHelp, ui.motionArt, ui.listen, ui.home);
   const total = hits + misses;
-  const accuracy = total ? Math.round(hits / total * 100) : 0;
-  ui.resultTitle.textContent = `${games[selectedGame].name} 완료!`;
-  ui.finalScore.textContent = score.toLocaleString();
-  ui.accuracy.textContent = `${accuracy}%`;
+  ui.resultTitle.textContent = "오늘도 정말 잘했어요!";
+  ui.finalScore.textContent = `${hits}개`;
+  ui.accuracy.textContent = `${total}번`;
   ui.maxCombo.textContent = maxCombo;
-  ui.grade.textContent = accuracy >= 92 ? "S" : accuracy >= 80 ? "A" : accuracy >= 65 ? "B" : "C";
+  ui.grade.textContent = hits >= 8 ? "🏆" : hits >= 4 ? "🌟" : "🌈";
   wakeLock?.release?.().catch(() => {});
   tone(660, .18, "triangle", .08);
   setTimeout(() => tone(880, .35, "triangle", .08), 180);
@@ -1363,9 +1561,11 @@ function returnToMenu() {
   cameraAttemptId += 1;
   countdownAttemptId += 1;
   running = calibrating = countdownActive = false;
+  speechRoundToken++;
   demo = false;
   stopCamera();
-  hide(ui.result, ui.cue, ui.demoHelp, ui.motionArt, ui.calibrate, ui.loading, ui.countdown);
+  try { speechSynthesis.cancel(); } catch {}
+  hide(ui.result, ui.cue, ui.demoHelp, ui.motionArt, ui.listen, ui.home, ui.calibrate, ui.loading, ui.countdown);
   show(ui.intro);
   setTracking("카메라 대기");
 }
@@ -1374,16 +1574,16 @@ function demoTouch(x, y) {
   if (!running || !demo || !gameState?.targets || performance.now() < inputLockedUntil) return;
   const radius = targetRadius();
   const target = gameState.targets.find((item) => {
-    if (selectedGame === "sequence" && item.value < gameState.current) return false;
-    return distance({ x, y }, targetPoint(item)) <= radius;
+    if (selectedGame === "sequence" && item.order < gameState.current) return false;
+    return pointInsideTarget({ x, y }, item, radius);
   });
   if (!target) return;
   if (selectedGame === "sequence") {
-    if (target.value === gameState.current) completeSequenceTarget(target);
+    if (target.order === gameState.current) completeSequenceTarget(target);
     else {
-      inputLockedUntil = performance.now() + 220;
+      inputLockedUntil = performance.now() + 110;
       const point = targetPoint(target);
-      penalty(`${gameState.current}번부터!`, point.x, point.y);
+      penalty(`${gameState.targets[gameState.current - 1]?.value || ""}부터 찾아봐요`, point.x, point.y, 0);
     }
   } else completeMathTarget(target);
 }
@@ -1393,11 +1593,11 @@ function demoExercise(game) {
   inputLockedUntil = performance.now() + 220;
   if (game === "squat") {
     if (gameState.phase === "needStand") gameState.phase = "ready";
-    else if (gameState.phase === "ready") { gameState.phase = "down"; showToast("좋아요! 이제 S로 일어서기"); }
+    else if (gameState.phase === "ready") { gameState.phase = "down"; showToast("UP! 다시 S를 눌러요"); speakEnglish("Stand up"); }
     else completeSquatRep();
   } else {
     if (gameState.phase === "needClosed") gameState.phase = "ready";
-    else if (gameState.phase === "ready") { gameState.phase = "open"; gameState.armsOpen = gameState.legsOpen = true; showToast("활짝! 다시 J"); }
+    else if (gameState.phase === "ready") { gameState.phase = "open"; gameState.armsOpen = gameState.legsOpen = true; showToast("CLOSE! 다시 J"); speakEnglish("Close"); }
     else { gameState.armsOpen = gameState.legsOpen = false; completeJackRep(); }
   }
   updateGameCue();
@@ -1409,15 +1609,17 @@ app.addEventListener("click", (event) => {
 
 addEventListener("keydown", (event) => {
   if (!running || !demo || event.repeat || performance.now() < inputLockedUntil) return;
-  if (selectedGame === "sequence" && (event.code === "Enter" || /^Digit[1-7]$/.test(event.code))) {
-    const value = event.code === "Enter" ? gameState.current : Number(event.code.replace("Digit", ""));
-    const target = gameState.targets.find((item) => item.value === value);
+  if (selectedGame === "sequence" && (event.code === "Enter" || /^Key[A-Z]$/.test(event.code))) {
+    const value = event.code === "Enter" ? gameState.targets[gameState.current - 1]?.value : event.key.toUpperCase();
+    const target = event.code === "Enter"
+      ? gameState.targets[gameState.current - 1]
+      : gameState.targets.find((item) => item.order >= gameState.current && item.value === value);
     if (target) {
-      if (value === gameState.current) completeSequenceTarget(target);
+      if (target.order === gameState.current) completeSequenceTarget(target);
       else {
-        inputLockedUntil = performance.now() + 220;
+        inputLockedUntil = performance.now() + 110;
         const point = targetPoint(target);
-        penalty(`${gameState.current}번부터!`, point.x, point.y);
+        penalty(`${gameState.targets[gameState.current - 1]?.value || ""}부터 찾아봐요`, point.x, point.y, 0);
       }
     }
   } else if (selectedGame === "math" && event.code === "Enter") {
@@ -1441,7 +1643,23 @@ $("#retryBtn").onclick = () => {
   }
 };
 $("#menuBtn").onclick = returnToMenu;
-$("#soundBtn").onclick = (event) => { sound = !sound; event.currentTarget.classList.toggle("off", !sound); };
+$("#homeBtn").onclick = returnToMenu;
+$("#soundBtn").onclick = (event) => {
+  sound = !sound;
+  event.currentTarget.classList.toggle("off", !sound);
+  if (!sound) try { speechSynthesis.cancel(); } catch {}
+  else if (running) announceRound();
+};
+$("#listenBtn").onclick = () => {
+  if (!sound) {
+    sound = true;
+    $("#soundBtn").classList.remove("off");
+  }
+  if (!announceRound()) {
+    showToast("🔤 화면 글자를 소리 내어 읽어봐요!");
+    tone(540, .12, "triangle", .05);
+  }
+};
 
 document.querySelectorAll(".game-card").forEach((card) => card.addEventListener("click", () => {
   document.querySelectorAll(".game-card").forEach((item) => item.classList.remove("active"));
@@ -1450,7 +1668,7 @@ document.querySelectorAll(".game-card").forEach((card) => card.addEventListener(
   ui.motionArt.src = games[selectedGame].image;
   ui.motionArt.alt = `${games[selectedGame].name} 동작 안내`;
   $("#gameDescription").textContent = games[selectedGame].description;
-  ui.time.textContent = Math.round(games[selectedGame].ms / 1000);
+  ui.time.textContent = "놀이 중";
   tone(330, .05, "triangle", .025);
 }));
 
@@ -1470,7 +1688,7 @@ window.__MOTION_TEST__ = {
     return this.snapshot();
   },
   hit() {
-    if (selectedGame === "sequence") completeSequenceTarget(gameState.targets.find((target) => target.value === gameState.current));
+    if (selectedGame === "sequence") completeSequenceTarget(gameState.targets.find((target) => target.order === gameState.current));
     else if (selectedGame === "math") completeMathTarget(gameState.targets.find((target) => target.value === gameState.answer));
     else demoExercise(selectedGame);
     return this.snapshot();
@@ -1511,16 +1729,17 @@ function feedSyntheticPose(preset, frames = 10) {
 
 function runEngineSelfTest() {
   const results = {};
+  selfTesting = true;
   demo = true;
-  selectedGame = "sequence";resetScore();gameState=createGameState("sequence");completeSequenceTarget(gameState.targets.find((target)=>target.value===1));
-  results.sequence = { pass: gameState.current === 2 && hits === 1 && feedbacks.at(-1)?.type === "good", current: gameState.current, hits, feedback: feedbacks.at(-1)?.label };
+  selectedGame = "sequence";resetScore();gameState=createGameState("sequence");const spellWord=gameState.prompt.word;completeSequenceTarget(gameState.targets.find((target)=>target.order===1));
+  results.sequence = { pass: gameState.current === 2 && hits === 1 && feedbacks.at(-1)?.type === "good" && WORDS.some((item)=>item.word===spellWord), word:spellWord, current: gameState.current, hits, feedback: feedbacks.at(-1)?.detail };
   selectedGame = "math";resetScore();gameState=createGameState("math");completeMathTarget(gameState.targets.find((target)=>target.value===gameState.answer));
-  results.math = { pass: hits === 1 && score > 0 && feedbacks.at(-1)?.detail?.includes("="), hits, score, feedback: feedbacks.at(-1)?.detail };
+  results.math = { pass: hits === 1 && score > 0 && WORDS.some((item)=>feedbacks.at(-1)?.detail?.includes(item.word)), answer:feedbacks.at(-1)?.detail, hits, score, feedback: feedbacks.at(-1)?.detail };
   selectedGame = "squat";resetScore();gameState=createGameState("squat");feedSyntheticPose("stand",10);const squatReady=gameState.phase;feedSyntheticPose("squat",10);const squatDown=gameState.phase;const squatDebug=squatFeatures(posePoints());feedSyntheticPose("stand",10);
   results.squat = { pass: gameState.reps === 1 && feedbacks.at(-1)?.type === "good", reps: gameState.reps, phase: gameState.phase, ready:squatReady, down:squatDown, angle:Math.round(squatDebug.kneeAngle), feedback:feedbacks.at(-1)?.label };
   selectedGame = "jack";resetScore();gameState=createGameState("jack");feedSyntheticPose("stand",10);feedSyntheticPose("jackOpen",10);feedSyntheticPose("stand",10);
   results.jack = { pass: gameState.reps === 1 && feedbacks.at(-1)?.type === "good", reps: gameState.reps, phase: gameState.phase, feedback:feedbacks.at(-1)?.label };
-  running = false;demo = false;selectedGame = "sequence";gameState = null;resetScore();
+  running = false;demo = false;selectedGame = "math";gameState = null;resetScore();selfTesting = false;
   results.pass = Object.values(results).every((item) => item?.pass !== false);
   window.__MOTION_SELFTEST__ = results;
   document.documentElement.dataset.selftest = JSON.stringify(results);
