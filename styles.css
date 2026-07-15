@@ -49,7 +49,16 @@ button:focus-visible{outline:4px solid #245d98;outline-offset:3px}
   pointer-events:none;
   background:linear-gradient(180deg,rgba(27,103,156,.24),transparent 15%,transparent 83%,rgba(25,73,95,.12));
 }
-#camera{display:none}
+#camera{
+  position:absolute;
+  left:0;
+  top:0;
+  width:1px;
+  height:1px;
+  opacity:0;
+  pointer-events:none;
+  object-fit:cover;
+}
 #gameCanvas{position:absolute;z-index:0;inset:0;width:100%;height:100%}
 
 .hud{
@@ -246,6 +255,21 @@ footer{position:absolute;z-index:5;left:calc(22px + env(safe-area-inset-left));b
   .game-card{grid-template-rows:112px minmax(50px,auto);min-height:188px}.game-card img{height:112px}.game-card>span:not(.card-badge){font-size:16px}
 }
 
+@media(min-width:701px) and (max-width:900px){
+  .hud{min-height:104px;padding:calc(9px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 27px calc(14px + env(safe-area-inset-left))}
+  .hud-stats{gap:6px;margin-right:112px}
+  .hud-stats>div:nth-child(2){display:none}
+  .tracking-status{top:calc(64px + env(safe-area-inset-top));max-width:68vw;min-height:34px;padding:5px 11px;border-width:2px;font-size:10px}
+  .tracking-status i{width:9px;height:9px}
+  .intro-panel{top:calc(110px + env(safe-area-inset-top))}
+  .cue{top:calc(108px + env(safe-area-inset-top));display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"cue-main cue-listen" "cue-detail cue-listen";align-items:center;gap:2px 9px;width:min(92vw,640px);max-width:92vw;padding:6px 11px 8px;border-width:3px;border-radius:20px;background:rgba(255,250,240,.90)}
+  .cue:after{bottom:-9px;width:15px;height:15px;border-width:3px}
+  .cue small{display:none}
+  .cue strong{grid-area:cue-main;display:-webkit-box;min-width:0;max-width:none;overflow:hidden;text-overflow:clip;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;overflow-wrap:break-word;word-break:keep-all;font-size:clamp(22px,3.4vw,28px);line-height:1.06}
+  .cue span{grid-area:cue-detail;display:block;min-width:0;overflow-wrap:break-word;word-break:keep-all;font-size:11px;line-height:1.15}
+  .listen-btn{grid-area:cue-listen;min-width:48px;min-height:48px;margin:0;padding:7px 10px;border-width:3px;font-size:13px}
+}
+
 @media(max-width:700px){
   .hud{min-height:70px;gap:5px;padding:calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) 8px calc(8px + env(safe-area-inset-left))}
   .brand{font-size:17px}.brand i{width:34px;height:34px;margin-right:0;border-radius:12px;font-size:17px}.brand b{display:none}
@@ -290,6 +314,16 @@ footer{position:absolute;z-index:5;left:calc(22px + env(safe-area-inset-left));b
 @media(max-width:420px) and (max-height:680px) and (orientation:portrait){
   .intro-panel{display:flex;flex-direction:column}
   .hero-copy{order:0}.motion-safety{order:1;margin:3px auto 6px;padding:5px 7px;font-size:11px;line-height:1.2}.motion-safety strong{display:inline;margin:0 3px 0 0;font-size:12px}.actions{position:sticky;z-index:8;top:-1px;order:2;margin:4px -2px 9px;padding:5px 2px 8px;background:linear-gradient(#fffaf0 78%,transparent)}.game-picker{order:3}.game-description{order:4}.privacy{order:5}
+  .tracking-status{max-width:88vw}
+  .cue{top:calc(99px + env(safe-area-inset-top));width:calc(100vw - 12px - env(safe-area-inset-left) - env(safe-area-inset-right));max-width:none;padding:4px 7px 6px;border-width:2px;border-radius:16px;background:rgba(255,250,240,.88);box-shadow:0 4px 0 rgba(53,93,123,.15)}
+  .cue:after{display:none}
+  .cue strong{font-size:clamp(18px,6vw,21px);line-height:1.03}
+  .cue span{display:none}
+  .listen-btn{min-width:48px;min-height:48px;padding:5px 7px;border-width:2px;font-size:11px;box-shadow:0 4px 0 #d7a91a}
+  #calibrate{bottom:calc(4px + env(safe-area-inset-bottom));padding:5px 10px 6px;border-width:2px;border-radius:18px}
+  #calibrate h2{font-size:17px;line-height:1.05}
+  #calibrate p{display:none}
+  #calibrate .signal{height:8px;margin:5px auto 1px;border-width:2px}
 }
 
 @media(max-height:680px) and (orientation:landscape){
@@ -314,6 +348,15 @@ footer{position:absolute;z-index:5;left:calc(22px + env(safe-area-inset-left));b
   .listen-btn{grid-area:cue-listen;min-width:48px;min-height:48px;margin:0;padding:5px 9px;border-width:2px;font-size:11px}
   .result-panel{width:min(620px,92vw);padding:8px 12px}.result-panel>.eyebrow{display:none}.result-panel h2{margin:0 0 2px;font-size:20px}.grade{width:50px;height:50px;margin:2px auto;border-width:3px;border-radius:16px;font-size:31px;box-shadow:0 4px 0 #d5a61c}.result-grid{margin:4px 0 7px}.result-grid div{padding:4px 3px}.result-grid strong{margin-top:2px;font-size:16px}.result-grid small{font-size:10px}.result-panel .primary,.result-panel .secondary{display:inline-flex;align-items:center;justify-content:center;width:calc(50% - 5px);min-height:48px;padding:6px 4px;font-size:13px}.result-panel .result-menu{margin:0 0 0 6px}
   .demo-help{bottom:calc(6px + env(safe-area-inset-bottom));padding:5px 10px}
+  #app.side-calibration .cue{left:auto;right:calc(5px + env(safe-area-inset-right));top:calc(67px + env(safe-area-inset-top));transform:none;display:flex;flex-direction:column;align-items:stretch;gap:4px;width:calc(var(--camera-left) - 10px - env(safe-area-inset-right));max-width:none;min-width:0;padding:6px 5px 8px;border-width:2px;border-radius:14px;background:rgba(255,250,240,.90);box-shadow:0 4px 0 rgba(53,93,123,.14)}
+  #app.side-calibration .cue:after{display:none}
+  #app.side-calibration .cue strong{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:5;line-clamp:5;white-space:normal;overflow-wrap:anywhere;word-break:keep-all;font-size:13px;line-height:1.08}
+  #app.side-calibration .cue span{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;overflow-wrap:anywhere;font-size:9px;line-height:1.1}
+  #app.side-calibration .listen-btn{width:100%;min-width:48px;min-height:48px;margin:1px 0 0;padding:5px 3px;border-width:2px;font-size:10px}
+}
+
+@media(max-width:620px) and (orientation:landscape){
+  .brand span{display:none}
 }
 
 @media(orientation:landscape){

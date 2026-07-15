@@ -20,14 +20,19 @@ const bg = new Image();
 bg.src = "assets/kid-playroom-bg-v1.webp";
 
 const CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35";
-const MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+const MODEL_LITE = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+const MODEL_FULL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
 const LM = { nose: 0, ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16, lh: 23, rh: 24, lk: 25, rk: 26, la: 27, ra: 28 };
 const SKELETON = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
 const POSE_JOINTS = [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra];
 const ARM_JOINTS = new Set([LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw]);
 const LEG_JOINTS = new Set([LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
 const MAJOR_JOINTS = new Set([LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra]);
-const POSE_INFERENCE_INTERVAL = 60;
+const POSE_INFERENCE_INTERVAL = 55;
+const POSE_FRESH_MS = 280;
+const POSE_CLEAR_MS = 420;
+const POSE_DT_MAX_MS = 140;
+const POSE_LOAD_TIMEOUT_MS = 20000;
 const TOUCH_DWELL_MS = 140;
 const TOUCH_REARM_MS = 90;
 const SPELLING_GOAL = 10;
@@ -35,7 +40,7 @@ const PICTURE_GOAL = 10;
 const FLIGHT_WORD_GOAL = 10;
 const FLIGHT_GATE_SPEED = .15;
 const FLIGHT_GATE_PREVIEW_MS = 900;
-const FLIGHT_POSE_FRESH_MS = 180;
+const FLIGHT_POSE_FRESH_MS = POSE_FRESH_MS;
 const WORDS = [
   { word: "CAT", emoji: "🐱", ko: "고양이" },
   { word: "DOG", emoji: "🐶", ko: "강아지" },
@@ -83,11 +88,18 @@ let selectedGame = "math";
 let stream = null;
 let poseLandmarker = null;
 let poseLoading = null;
+let poseWorker = null;
+let poseWorkerReady = false;
+let poseWorkerGeneration = 0;
+let poseLoadGeneration = 0;
+let poseRuntime = "none";
+let poseModelVariant = "lite";
 let lastPose = null;
 let lastWorldPose = null;
 let poseVersion = 0;
 let evaluatedPoseVersion = -1;
 let poseTimestamp = 0;
+let poseCaptureTimestamp = 0;
 let lastInferenceAt = 0;
 let lastVideoTime = -1;
 let inferenceErrors = 0;
@@ -96,6 +108,7 @@ let running = false;
 let calibrating = false;
 let countdownActive = false;
 let renderLoopActive = false;
+let renderFrameId = 0;
 let sound = true;
 let audioCtx = null;
 let wakeLock = null;
@@ -112,17 +125,37 @@ let feedbacks = [];
 let wristTrails = { [LM.lw]: [], [LM.rw]: [] };
 let inputLockedUntil = 0;
 let cameraAttemptId = 0;
+let cameraFrameGeneration = 0;
+let cameraStreamReady = false;
 let countdownAttemptId = 0;
 let forceCpuPose = false;
+let preferLitePose = false;
 let poseInferenceBusy = false;
+let poseInferenceStartedAt = 0;
+let poseRecovering = false;
+let poseInferenceSamples = 0;
+let poseDowngradeStarted = false;
+let disablePoseWorker = false;
 let selfTesting = false;
 let adaptiveInferenceInterval = POSE_INFERENCE_INTERVAL;
 let lastUsablePoseAt = 0;
+let trackingInvalidSince = 0;
+let trackingInputReset = false;
 let speechRoundToken = 0;
 let trackingWasPaused = false;
 let wordDeck = [];
 let completedWordCount = 0;
 let completedRun = false;
+let orientationTimer = 0;
+let resumeCameraAfterPageShow = false;
+let resumeCameraMode = "";
+let cameraStartInProgress = false;
+const motionDiagnostics = {
+  runtime: "none", model: "none", delegate: "none", camera: null,
+  inferenceMs: 0, inferenceAverageMs: 0, poseAgeMs: Infinity,
+  droppedFrames: 0, errors: 0, lastError: ""
+};
+window.__MOTION_DIAGNOSTICS__ = motionDiagnostics;
 
 const hide = (...elements) => elements.forEach((el) => el?.classList.add("hidden"));
 const show = (...elements) => elements.forEach((el) => el?.classList.remove("hidden"));
@@ -137,6 +170,40 @@ const shuffle = (items) => {
   }
   return copy;
 };
+const median = (values) => {
+  const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+};
+
+function withTimeout(promise, timeoutMs, message, onLateResolve) {
+  let timer;
+  let settled = false;
+  const guardedPromise = Promise.resolve(promise).then((value) => {
+    if (settled) {
+      try { onLateResolve?.(value); } catch {}
+    }
+    return value;
+  });
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      settled = true;
+      reject(new Error(message));
+    }, timeoutMs);
+  });
+  return Promise.race([guardedPromise, timeoutPromise]).finally(() => {
+    settled = true;
+    clearTimeout(timer);
+  });
+}
+
+function currentPoseAge(now = performance.now()) {
+  if (!poseTimestamp) return Infinity;
+  const receivedAge = now - poseTimestamp;
+  const captureAge = poseCaptureTimestamp ? now - poseCaptureTimestamp : receivedAge;
+  return Math.max(0, receivedAge, captureAge);
+}
 
 function nextWord() {
   return wordDeck.shift() || null;
@@ -190,8 +257,9 @@ function resize() {
 }
 
 function updateCameraGeometry() {
-  const stageTop = viewW < 700 ? 82 : 76;
-  const stageBottom = viewW < 700 ? 18 : 24;
+  const compactLandscape = viewW > viewH && viewH < 680;
+  const stageTop = compactLandscape ? 62 : viewW < 700 ? 82 : viewW <= 900 ? 108 : 76;
+  const stageBottom = compactLandscape ? 12 : viewW < 700 ? 18 : 24;
   const stage = { x: 8, y: stageTop, w: Math.max(1, viewW - 16), h: Math.max(1, viewH - stageTop - stageBottom) };
   const sourceW = video.videoWidth || (matchMedia("(orientation: portrait)").matches ? 720 : 1280);
   const sourceH = video.videoHeight || (matchMedia("(orientation: portrait)").matches ? 1280 : 720);
@@ -207,17 +275,21 @@ addEventListener("resize", resize);
 window.visualViewport?.addEventListener("resize", resize);
 addEventListener("orientationchange", () => {
   calibrationGoodSince = null;
-  setTimeout(() => {
+  clearTimeout(orientationTimer);
+  orientationTimer = setTimeout(() => {
     resize();
     if (stream && !demo && (running || countdownActive || calibrating)) {
+      cameraFrameGeneration += 1;
       lastPose = null;
       lastWorldPose = null;
       poseTimestamp = 0;
-      if (running) rearmGameInput();
+      poseCaptureTimestamp = 0;
+      rearmGameInput();
       setTracking("다시 찾는 중", "warn");
       showToast("화면이 돌아갔어요 · 그대로 이어서 해요");
+      void reconfigureCameraForOrientation();
     }
-  }, 180);
+  }, 220);
 });
 video.addEventListener("resize", resize);
 resize();
@@ -255,52 +327,311 @@ function tone(frequency = 440, duration = .08, type = "sine", volume = .05) {
   } catch {}
 }
 
-async function loadPose() {
-  if (poseLandmarker) return poseLandmarker;
-  if (poseLoading) return poseLoading;
-  poseLoading = (async () => {
-    const { FilesetResolver, PoseLandmarker } = await import(`${CDN}/+esm`);
-    const vision = await FilesetResolver.forVisionTasks(`${CDN}/wasm`);
-    const common = {
-      baseOptions: { modelAssetPath: MODEL, delegate: forceCpuPose ? "CPU" : "GPU" }, runningMode: "VIDEO", numPoses: 1,
-      minPoseDetectionConfidence: .52, minPosePresenceConfidence: .52, minTrackingConfidence: .5
-    };
-    try {
-      poseLandmarker = await PoseLandmarker.createFromOptions(vision, common);
-    } catch {
-      forceCpuPose = true;
-      common.baseOptions.delegate = "CPU";
-      poseLandmarker = await PoseLandmarker.createFromOptions(vision, common);
-    }
-    return poseLandmarker;
-  })();
-  try { return await poseLoading; }
-  finally { poseLoading = null; }
+function closePoseWorker() {
+  poseWorkerGeneration += 1;
+  poseWorkerReady = false;
+  poseInferenceBusy = false;
+  try { poseWorker?.terminate?.(); } catch {}
+  poseWorker = null;
+  if (poseRuntime === "worker") poseRuntime = "none";
 }
 
-async function openCamera(attemptId) {
-  const portrait = matchMedia("(orientation: portrait)").matches;
-  const preferred = {
-    facingMode: { ideal: "user" }, width: { ideal: portrait ? 480 : 640 }, height: { ideal: portrait ? 640 : 480 },
-    aspectRatio: { ideal: portrait ? .75 : 1.333 }, frameRate: { ideal: 20, max: 24 }, resizeMode: { ideal: "none" }
+function closePoseCandidate(candidate) {
+  try { candidate?.close?.(); } catch {}
+}
+
+function closeMainPose() {
+  closePoseCandidate(poseLandmarker);
+  poseLandmarker = null;
+  if (poseRuntime === "main") poseRuntime = "none";
+}
+
+function resetPoseRuntime() {
+  poseLoadGeneration += 1;
+  closePoseWorker();
+  closeMainPose();
+  poseLoading = null;
+  poseInferenceSamples = 0;
+  poseDowngradeStarted = false;
+  motionDiagnostics.inferenceAverageMs = 0;
+  motionDiagnostics.runtime = "none";
+  motionDiagnostics.model = "none";
+  motionDiagnostics.delegate = "none";
+}
+
+function smoothWorldPose(raw, now) {
+  if (!lastWorldPose || now - poseTimestamp > 350) return raw?.map((point) => ({ ...point })) || null;
+  const dt = clamp(now - poseTimestamp, 16, 140);
+  const alpha = 1 - Math.exp(-dt / 90);
+  return raw?.map((point, index) => {
+    const previous = lastWorldPose[index];
+    if (!previous) return { ...point };
+    return {
+      ...point,
+      x: lerp(previous.x, point.x, alpha),
+      y: lerp(previous.y, point.y, alpha),
+      z: lerp(previous.z || 0, point.z || 0, alpha)
+    };
+  }) || null;
+}
+
+function acceptPoseResult(raw, world, captureTimestamp, inferenceMs, receivedAt = performance.now(), frameGeneration = cameraFrameGeneration) {
+  if (frameGeneration !== cameraFrameGeneration) return;
+  if (Number.isFinite(captureTimestamp) && poseCaptureTimestamp && captureTimestamp <= poseCaptureTimestamp) return;
+  motionDiagnostics.inferenceMs = Math.round(inferenceMs || 0);
+  motionDiagnostics.inferenceAverageMs = Math.round(motionDiagnostics.inferenceAverageMs
+    ? motionDiagnostics.inferenceAverageMs * .84 + (inferenceMs || 0) * .16
+    : (inferenceMs || 0));
+  poseInferenceSamples += 1;
+  if (raw?.length) {
+    lastPose = smoothPose(raw, receivedAt);
+    lastWorldPose = smoothWorldPose(world, receivedAt);
+    poseCaptureTimestamp = Number.isFinite(captureTimestamp) ? captureTimestamp : receivedAt;
+    poseTimestamp = receivedAt;
+    poseVersion += 1;
+    inferenceErrors = 0;
+    motionDiagnostics.poseAgeMs = 0;
+  } else if (receivedAt - poseTimestamp > POSE_CLEAR_MS) {
+    lastPose = null;
+    lastWorldPose = null;
+  }
+  adaptiveInferenceInterval = inferenceMs > 90
+    ? Math.min(125, adaptiveInferenceInterval + 10)
+    : inferenceMs > 55
+      ? Math.min(95, adaptiveInferenceInterval + 4)
+      : Math.max(POSE_INFERENCE_INTERVAL, adaptiveInferenceInterval - 2);
+  const fullModelTooSlow = poseModelVariant === "full"
+    && ((poseInferenceSamples >= 6 && motionDiagnostics.inferenceAverageMs > 95)
+      || (poseInferenceSamples >= 4 && motionDiagnostics.inferenceAverageMs > 140));
+  if (poseRuntime === "worker" && fullModelTooSlow && !poseDowngradeStarted) {
+    poseDowngradeStarted = true;
+    void recoverPoseRuntime({ preferLite: true });
+  }
+}
+
+function startPoseWorker(modelAssetPath, variant, delegate) {
+  closePoseWorker();
+  const worker = new Worker(new URL("pose-worker.js", import.meta.url), { type: "module" });
+  const generation = ++poseWorkerGeneration;
+  poseWorker = worker;
+  poseWorkerReady = false;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      if (poseWorker === worker) {
+        try { worker.terminate(); } catch {}
+        poseWorker = null;
+        poseWorkerReady = false;
+      }
+      reject(error instanceof Error ? error : new Error(String(error || "포즈 작업을 시작하지 못했습니다.")));
+    };
+    const handleWorkerTransportError = (event) => {
+      event?.preventDefault?.();
+      const error = new Error(event?.message || "포즈 작업 연결 오류");
+      if (!settled) fail(error);
+      else {
+        poseWorkerReady = false;
+        handlePoseRuntimeFailure(error, true);
+      }
+    };
+    worker.onerror = handleWorkerTransportError;
+    worker.onmessageerror = handleWorkerTransportError;
+    worker.onmessage = (event) => {
+      const message = event.data || {};
+      if (message.generation !== generation || poseWorker !== worker) return;
+      if (message.type === "ready") {
+        poseWorkerReady = true;
+        poseRuntime = "worker";
+        poseModelVariant = variant;
+        motionDiagnostics.runtime = "worker";
+        motionDiagnostics.model = variant;
+        motionDiagnostics.delegate = message.delegate || delegate;
+        if (!settled) {
+          settled = true;
+          resolve(true);
+        }
+        return;
+      }
+      if (message.type === "result") {
+        acceptPoseResult(message.landmarks?.[0], message.worldLandmarks?.[0], message.timestamp, message.inferenceMs, performance.now(), message.frameGeneration);
+        return;
+      }
+      if (message.type === "error") {
+        const error = new Error(`${message.phase || "worker"}: ${message.message || "포즈 인식 오류"}`);
+        if (!settled) fail(error);
+        else handlePoseRuntimeFailure(error);
+      }
+    };
+    worker.postMessage({
+      type: "init", wasmRoot: `${CDN}/wasm`, modelAssetPath, delegate, generation
+    });
+  });
+}
+
+async function waitForPoseCandidate(candidatePromise, generation, message, timeoutMs = POSE_LOAD_TIMEOUT_MS) {
+  const candidate = await withTimeout(candidatePromise, timeoutMs, message, closePoseCandidate);
+  if (generation !== poseLoadGeneration) {
+    closePoseCandidate(candidate);
+    throw new Error("이전 동작 인식 요청이 취소됐습니다.");
+  }
+  return candidate;
+}
+
+async function loadMainPose(generation) {
+  const { FilesetResolver, PoseLandmarker } = await withTimeout(import(`${CDN}/+esm`), POSE_LOAD_TIMEOUT_MS, "동작 인식 모듈 시간이 초과됐습니다.");
+  if (generation !== poseLoadGeneration) throw new Error("이전 동작 인식 요청이 취소됐습니다.");
+  const vision = await withTimeout(FilesetResolver.forVisionTasks(`${CDN}/wasm`), POSE_LOAD_TIMEOUT_MS, "동작 인식 준비 시간이 초과됐습니다.");
+  if (generation !== poseLoadGeneration) throw new Error("이전 동작 인식 요청이 취소됐습니다.");
+  const common = {
+    baseOptions: { modelAssetPath: MODEL_LITE, delegate: forceCpuPose ? "CPU" : "GPU" },
+    runningMode: "VIDEO", numPoses: 1,
+    minPoseDetectionConfidence: .50, minPosePresenceConfidence: .50, minTrackingConfidence: .48
   };
-  let nextStream;
+  let candidate;
   try {
-    nextStream = await navigator.mediaDevices.getUserMedia({ video: preferred, audio: false });
+    candidate = await waitForPoseCandidate(PoseLandmarker.createFromOptions(vision, common), generation, "동작 인식 모델 시간이 초과됐습니다.");
   } catch (error) {
-    if (error.name === "OverconstrainedError") nextStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-    else throw error;
+    if (generation !== poseLoadGeneration) throw error;
+    if (forceCpuPose) throw error;
+    forceCpuPose = true;
+    common.baseOptions.delegate = "CPU";
+    candidate = await waitForPoseCandidate(PoseLandmarker.createFromOptions(vision, common), generation, "안전 모드 준비 시간이 초과됐습니다.");
   }
-  if (attemptId !== cameraAttemptId) {
-    nextStream.getTracks().forEach((track) => track.stop());
-    return false;
+  if (generation !== poseLoadGeneration) {
+    closePoseCandidate(candidate);
+    throw new Error("이전 동작 인식 요청이 취소됐습니다.");
   }
-  stream = nextStream;
-  video.srcObject = stream;
-  await video.play();
-  const track = stream.getVideoTracks()[0];
+  poseLandmarker = candidate;
+  poseRuntime = "main";
+  poseModelVariant = "lite";
+  motionDiagnostics.runtime = "main";
+  motionDiagnostics.model = "lite";
+  motionDiagnostics.delegate = forceCpuPose ? "CPU" : "GPU";
+  return true;
+}
+
+async function loadPose() {
+  if (poseWorkerReady || poseLandmarker) return true;
+  if (poseLoading) return poseLoading;
+  const generation = ++poseLoadGeneration;
+  poseLoading = (async () => {
+    const canUseWorker = !disablePoseWorker && typeof Worker !== "undefined" && typeof createImageBitmap === "function";
+    if (canUseWorker) {
+      const cores = navigator.hardwareConcurrency || 4;
+      const memory = navigator.deviceMemory || 4;
+      const highPerformance = !forceCpuPose && !preferLitePose && cores >= 6 && memory >= 4;
+      const attempts = forceCpuPose
+        ? [{ model: MODEL_LITE, variant: "lite", delegate: "CPU" }]
+        : preferLitePose
+          ? [{ model: MODEL_LITE, variant: "lite", delegate: "GPU" }, { model: MODEL_LITE, variant: "lite", delegate: "CPU" }]
+        : highPerformance
+          ? [{ model: MODEL_FULL, variant: "full", delegate: "GPU" }, { model: MODEL_LITE, variant: "lite", delegate: "CPU" }]
+          : [{ model: MODEL_LITE, variant: "lite", delegate: "GPU" }, { model: MODEL_LITE, variant: "lite", delegate: "CPU" }];
+      for (const attempt of attempts) {
+        try {
+          await withTimeout(startPoseWorker(attempt.model, attempt.variant, attempt.delegate), POSE_LOAD_TIMEOUT_MS, "동작 인식 작업 시간이 초과됐습니다.");
+          if (generation !== poseLoadGeneration) throw new Error("이전 동작 인식 요청이 취소됐습니다.");
+          return true;
+        } catch (error) {
+          motionDiagnostics.lastError = error.message;
+          closePoseWorker();
+        }
+      }
+    }
+    return loadMainPose(generation);
+  })();
+  try {
+    return await poseLoading;
+  } finally {
+    if (generation === poseLoadGeneration) poseLoading = null;
+  }
+}
+
+async function recoverPoseRuntime(options = {}) {
+  if (poseRecovering) return;
+  const { preferLite = false, forceCpu = false, disableWorker = false } = options;
+  poseRecovering = true;
+  if (preferLite) preferLitePose = true;
+  if (forceCpu) forceCpuPose = true;
+  if (disableWorker) disablePoseWorker = true;
+  setTracking(forceCpu ? "안전 모드로 바꾸는 중" : preferLite ? "속도에 맞게 조정 중" : "동작 인식 다시 연결 중", "warn");
+  try {
+    resetPoseRuntime();
+    await loadPose();
+    inferenceErrors = 0;
+    rearmGameInput();
+  } catch (error) {
+    motionDiagnostics.lastError = error.message;
+    running = calibrating = countdownActive = false;
+    countdownAttemptId += 1;
+    stopCamera();
+    hide(ui.calibrate, ui.cue, ui.countdown);
+    show(ui.loading);
+    showCameraError({ name: "PoseRuntimeError" });
+  } finally {
+    poseRecovering = false;
+  }
+}
+
+function handlePoseRuntimeFailure(error, workerTransportFailed = false) {
+  const failedRuntime = poseRuntime;
+  inferenceErrors = workerTransportFailed ? 3 : inferenceErrors + 1;
+  motionDiagnostics.errors += 1;
+  motionDiagnostics.lastError = error?.message || String(error || "pose error");
+  if (inferenceErrors >= 3) {
+    void recoverPoseRuntime({
+      preferLite: true,
+      forceCpu: failedRuntime === "main",
+      disableWorker: workerTransportFailed || failedRuntime === "worker"
+    });
+  }
+}
+
+function cameraVideoConstraints(includeResizeMode = true) {
+  const portrait = matchMedia("(orientation: portrait)").matches;
+  const constraints = {
+    facingMode: { ideal: "user" },
+    width: { ideal: portrait ? 480 : 640, max: 640 },
+    height: { ideal: portrait ? 640 : 480, max: 640 },
+    aspectRatio: { ideal: portrait ? .75 : 1.333 },
+    frameRate: { ideal: 30, max: 30 }
+  };
+  if (includeResizeMode) constraints.resizeMode = { ideal: "none" };
+  return constraints;
+}
+
+function recordCameraSettings(track) {
+  const settings = track?.getSettings?.() || {};
+  motionDiagnostics.camera = {
+    width: settings.width || video.videoWidth || 0,
+    height: settings.height || video.videoHeight || 0,
+    frameRate: settings.frameRate || 0,
+    facingMode: settings.facingMode || "unknown"
+  };
+}
+
+async function alignCameraToOrientation(track) {
+  const portrait = matchMedia("(orientation: portrait)").matches;
+  const width = video.videoWidth || track?.getSettings?.().width || 0;
+  const height = video.videoHeight || track?.getSettings?.().height || 0;
+  const mismatched = width && height && (portrait ? width > height : height > width);
+  if (!mismatched) return;
+  const strict = cameraVideoConstraints(false);
+  strict.aspectRatio = { exact: portrait ? .75 : 1.333 };
+  try {
+    await track.applyConstraints(strict);
+    await video.play();
+  } catch {
+    // Some desktop webcams only expose a landscape sensor; contain mode remains the safe fallback.
+  }
+}
+
+function bindCameraTrack(track, ownerStream) {
   track.onended = () => {
-    if (stream !== nextStream) return;
+    if (stream !== ownerStream) return;
+    cameraStreamReady = false;
     stream = null;
     video.srcObject = null;
     running = calibrating = countdownActive = false;
@@ -309,23 +640,146 @@ async function openCamera(attemptId) {
     show(ui.loading);
     showCameraError({ name: "NotReadableError" });
   };
+  track.onmute = () => {
+    if (stream !== ownerStream || document.hidden) return;
+    trackingInvalidSince = performance.now();
+    rearmGameInput();
+    setTracking("카메라 화면 다시 찾는 중", "warn");
+  };
+  track.onunmute = () => {
+    if (stream !== ownerStream) return;
+    setTracking("동작 다시 찾는 중", "warn");
+  };
+}
+
+function releaseCameraStream(targetStream) {
+  targetStream?.getTracks?.().forEach((track) => {
+    track.onended = track.onmute = track.onunmute = null;
+    try { track.stop(); } catch {}
+  });
+}
+
+function discardCameraStream(targetStream) {
+  if (!targetStream) return;
+  if (stream === targetStream) {
+    stream = null;
+    cameraStreamReady = false;
+  }
+  if (video.srcObject === targetStream) video.srcObject = null;
+  releaseCameraStream(targetStream);
+}
+
+function releaseSupersededCameraStream(previousStream, targetStream) {
+  if (previousStream && previousStream !== targetStream && previousStream !== stream) releaseCameraStream(previousStream);
+}
+
+function cameraOpenIsCurrent(attemptId, targetStream) {
+  return attemptId === cameraAttemptId && stream === targetStream && video.srcObject === targetStream;
+}
+
+async function openCamera(attemptId) {
+  const preferred = cameraVideoConstraints(true);
+  const relaxed = cameraVideoConstraints(false);
+  delete relaxed.aspectRatio;
+  let nextStream;
+  try {
+    nextStream = await navigator.mediaDevices.getUserMedia({ video: preferred, audio: false });
+  } catch (error) {
+    if (error.name === "OverconstrainedError") nextStream = await navigator.mediaDevices.getUserMedia({ video: relaxed, audio: false });
+    else throw error;
+  }
+  if (attemptId !== cameraAttemptId) {
+    releaseCameraStream(nextStream);
+    return false;
+  }
+  const previousStream = stream;
+  cameraFrameGeneration += 1;
+  stream = nextStream;
+  cameraStreamReady = false;
+  video.srcObject = nextStream;
+  const track = nextStream.getVideoTracks()[0];
+  if (!track) {
+    releaseSupersededCameraStream(previousStream, nextStream);
+    discardCameraStream(nextStream);
+    throw Object.assign(new Error("camera track unavailable"), { name: "NotFoundError" });
+  }
+  try {
+    await video.play();
+    if (!cameraOpenIsCurrent(attemptId, nextStream)) {
+      releaseSupersededCameraStream(previousStream, nextStream);
+      discardCameraStream(nextStream);
+      return false;
+    }
+    releaseCameraStream(previousStream);
+    bindCameraTrack(track, nextStream);
+    await alignCameraToOrientation(track);
+    if (!cameraOpenIsCurrent(attemptId, nextStream)) {
+      releaseSupersededCameraStream(previousStream, nextStream);
+      discardCameraStream(nextStream);
+      return false;
+    }
+  } catch (error) {
+    releaseSupersededCameraStream(previousStream, nextStream);
+    discardCameraStream(nextStream);
+    throw error;
+  }
   try {
     const capabilities = track.getCapabilities?.();
     if (capabilities?.zoom && Number.isFinite(capabilities.zoom.min)) await track.applyConstraints({ advanced: [{ zoom: capabilities.zoom.min }] });
   } catch {}
+  if (!cameraOpenIsCurrent(attemptId, nextStream)) {
+    releaseSupersededCameraStream(previousStream, nextStream);
+    discardCameraStream(nextStream);
+    return false;
+  }
+  recordCameraSettings(track);
+  cameraStreamReady = true;
   resize();
   return true;
 }
 
+async function reconfigureCameraForOrientation() {
+  const track = stream?.getVideoTracks?.()[0];
+  if (!track || track.readyState !== "live") return;
+  const operationAttempt = cameraAttemptId;
+  try {
+    await track.applyConstraints(cameraVideoConstraints(false));
+    if (document.hidden || operationAttempt !== cameraAttemptId || stream?.getVideoTracks?.()[0] !== track) return;
+    await video.play();
+    await alignCameraToOrientation(track);
+    if (document.hidden || operationAttempt !== cameraAttemptId || stream?.getVideoTracks?.()[0] !== track) return;
+    recordCameraSettings(track);
+    resize();
+  } catch {
+    if (document.hidden || operationAttempt !== cameraAttemptId) return;
+    const attemptId = ++cameraAttemptId;
+    try {
+      stopCamera();
+      if (!(await openCamera(attemptId))) return;
+      rearmGameInput();
+      setTracking("동작 다시 찾는 중", "warn");
+    } catch (error) {
+      running = calibrating = countdownActive = false;
+      hide(ui.calibrate, ui.cue, ui.countdown);
+      show(ui.loading);
+      showCameraError(error);
+    }
+  }
+}
+
 function stopCamera() {
-  stream?.getTracks().forEach((track) => {
-    track.onended = null;
-    track.stop();
-  });
+  cameraFrameGeneration += 1;
+  const activeStream = stream;
   stream = null;
+  cameraStreamReady = false;
   video.srcObject = null;
+  releaseCameraStream(activeStream);
   lastPose = null;
   lastWorldPose = null;
+  poseTimestamp = 0;
+  poseCaptureTimestamp = 0;
+  poseInferenceBusy = false;
+  lastVideoTime = -1;
 }
 
 function showCameraError(error) {
@@ -346,6 +800,8 @@ function showCameraError(error) {
 
 async function startCamera() {
   const attemptId = ++cameraAttemptId;
+  cameraStartInProgress = true;
+  let cameraConnected = false;
   hide(ui.intro, ui.result, ui.loadingActions);
   show(ui.loading, ui.home);
   ui.loading.querySelector(".loader").classList.remove("hidden");
@@ -353,16 +809,19 @@ async function startCamera() {
   ui.loadingText.textContent = "전체 화면을 유지하는 광각 모드로 준비하고 있습니다.";
   const permissionHint = setTimeout(() => {
     if (attemptId !== cameraAttemptId) return;
-    ui.loadingText.textContent = "브라우저의 카메라 허용 창을 확인해 주세요. 계속 막히면 체험 모드로 먼저 확인할 수 있어요.";
+    ui.loadingText.textContent = cameraConnected
+      ? "동작 인식 모델을 준비하고 있어요. 네트워크가 느리면 조금 더 걸릴 수 있어요."
+      : "브라우저의 카메라 허용 창을 확인해 주세요. 계속 막히면 체험 모드로 먼저 확인할 수 있어요.";
     show(ui.loadingActions);
   }, 7000);
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error("camera unavailable"), { name: "NotFoundError" });
-    const hasLiveCamera = stream?.getVideoTracks().some((track) => track.readyState === "live");
+    const hasLiveCamera = cameraStreamReady && stream?.getVideoTracks().some((track) => track.readyState === "live");
     if (!hasLiveCamera) {
       stopCamera();
       if (!(await openCamera(attemptId))) return;
     }
+    cameraConnected = true;
     if (attemptId !== cameraAttemptId) return;
     ui.loadingTitle.textContent = "AI 동작 인식 준비 중";
     ui.loadingText.textContent = "처음 한 번만 포즈 모델을 불러옵니다.";
@@ -378,6 +837,7 @@ async function startCamera() {
     showCameraError(error);
   } finally {
     clearTimeout(permissionHint);
+    if (attemptId === cameraAttemptId) cameraStartInProgress = false;
   }
 }
 
@@ -399,7 +859,7 @@ function beginCalibration() {
 function requiredIndices(game = selectedGame, calibration = false) {
   if (game === "squat") {
     if (!calibration && gameState?.currentAction?.required) return gameState.currentAction.required;
-    return [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra];
+    return [LM.nose, LM.ls, LM.rs, LM.lh, LM.rh, LM.lk, LM.rk, LM.la, LM.ra];
   }
   if (game === "jack") return [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh];
   const core = [LM.nose, LM.ls, LM.rs];
@@ -419,18 +879,31 @@ function landmarkInFrame(landmark, margin = .025) {
 function actionRequiredLandmarksUsable(action = gameState?.currentAction) {
   if (!action?.required?.length) return false;
   const lowerBodyAction = ["oneLeg", "touchKnees", "squat", "leanSide"].includes(action.id);
-  const minimum = lowerBodyAction ? .40 : .38;
-  const margin = .01;
-  return action.required.every((index) => {
+  const minimum = lowerBodyAction ? .34 : .34;
+  const margin = .008;
+  const usable = (index, threshold = minimum) => {
     const landmark = lastPose?.[index];
-    return landmarkVisible(landmark, minimum)
+    return landmarkVisible(landmark, threshold)
       && landmark.x >= margin && landmark.x <= 1 - margin
       && landmark.y >= margin && landmark.y <= 1 - margin;
-  });
+  };
+  if (action.id === "touchHead") {
+    const core = [LM.nose, LM.ls, LM.rs].every((index) => usable(index));
+    const leftArm = [LM.le, LM.lw].every((index) => usable(index));
+    const rightArm = [LM.re, LM.rw].every((index) => usable(index));
+    return core && (leftArm || rightArm);
+  }
+  if (action.id === "squat") {
+    const core = [LM.ls, LM.rs, LM.lh, LM.rh].every((index) => usable(index));
+    const leftLeg = [LM.lk, LM.la].every((index) => usable(index, .34));
+    const rightLeg = [LM.rk, LM.ra].every((index) => usable(index, .34));
+    return core && (leftLeg || rightLeg);
+  }
+  return action.required.every((index) => usable(index));
 }
 
 function analyzeFit() {
-  if (!lastPose || performance.now() - poseTimestamp > 550) return { good: false, title: "몸을 찾고 있어요", text: "카메라 정면에 서 주세요." };
+  if (!lastPose || currentPoseAge() > POSE_FRESH_MS) return { good: false, title: "몸을 찾고 있어요", text: "카메라 정면에 서 주세요." };
   const needed = requiredIndices(selectedGame, true);
   const visibility = games[selectedGame].fullBody ? .40 : .36;
   const flightGame = selectedGame === "jack";
@@ -449,11 +922,10 @@ function analyzeFit() {
     const actionMissions = selectedGame === "squat";
     const bodyHeight = maxY - minY;
     const edge = selectedGame === "jack" ? .06 : .04;
-    const maxHeight = selectedGame === "jack" ? .78 : actionMissions ? .82 : .90;
+    const maxHeight = selectedGame === "jack" ? .86 : actionMissions ? .91 : .92;
     centerX = (minX + maxX) / 2;
-    tooClose = bodyHeight > maxHeight || minX < edge || maxX > 1 - edge || minY < edge * .65 || maxY > 1 - edge * .4
-      || (actionMissions && lastPose[LM.nose].y < .14);
-    tooFar = bodyHeight < (actionMissions ? .44 : .36);
+    tooClose = bodyHeight > maxHeight || minX < edge || maxX > 1 - edge || minY < .05 || maxY > 1 - edge * .35;
+    tooFar = bodyHeight < (actionMissions ? .40 : .36);
   } else {
     const leftShoulder = lastPose[LM.ls];
     const rightShoulder = lastPose[LM.rs];
@@ -462,7 +934,13 @@ function analyzeFit() {
     tooClose = shoulderWidth > (flightGame ? .30 : .58) || minY < .025;
     tooFar = shoulderWidth < .10;
   }
-  if (tooClose) return { good: false, title: "카메라가 너무 가까워요", text: "전신이 잘리지 않게 1~2걸음 뒤로 이동하세요." };
+  if (tooClose) return {
+    good: false,
+    title: "카메라가 조금 가까워요",
+    text: games[selectedGame].fullBody
+      ? "머리와 발목이 보이도록 한 걸음만 뒤로 가요."
+      : flightGame ? "양손이 잘리지 않도록 반 걸음 뒤로 가요." : "손이 잘리지 않도록 반 걸음 뒤로 가요."
+  };
   if (tooFar) return { good: false, title: "몸이 너무 작게 보여요", text: "한 걸음만 앞으로 이동하세요." };
   if (centerX < .25) return { good: false, title: "화면 오른쪽으로 이동", text: "몸을 안내선 가운데에 맞춰 주세요." };
   if (centerX > .75) return { good: false, title: "화면 왼쪽으로 이동", text: "몸을 안내선 가운데에 맞춰 주세요." };
@@ -516,6 +994,7 @@ async function startCountdown() {
 
 function startDemo() {
   cameraAttemptId += 1;
+  cameraStartInProgress = false;
   stopCamera();
   demo = true;
   calibrating = false;
@@ -533,8 +1012,12 @@ function resetScore() {
   completedWordCount = 0;
   completedRun = false;
   lastUsablePoseAt = 0;
+  trackingInvalidSince = 0;
+  trackingInputReset = false;
   trackingWasPaused = false;
   adaptiveInferenceInterval = POSE_INFERENCE_INTERVAL;
+  evaluatedPoseVersion = poseVersion;
+  lastPoseEvalAt = poseCaptureTimestamp || poseTimestamp;
   inputLockedUntil = 0;
   particles = [];
   ripples = [];
@@ -558,6 +1041,8 @@ function rearmGameInput() {
     gameState.commandArmed = false;
     gameState.phase = gameState.currentAction?.id === "oneLeg" || gameState.currentAction?.id === "squat" ? "needStand" : "active";
     gameState.baselineHipY = null;
+    gameState.baselineTorso = null;
+    gameState.standSamples = [];
     gameState.groundY = null;
   } else if (selectedGame === "jack") {
     gameState.phase = "needUp";
@@ -565,6 +1050,8 @@ function rearmGameInput() {
     gameState.strokeMs = 0;
     gameState.invalidMs = 0;
     gameState.upWingY = null;
+    gameState.upLevel = null;
+    gameState.upSamples = 0;
     gameState.inputValid = false;
     gameState.wingsUp = false;
     gameState.wingsDown = false;
@@ -581,6 +1068,8 @@ function beginGame() {
   resetScore();
   running = true;
   gameState = createGameState(selectedGame);
+  evaluatedPoseVersion = poseVersion;
+  lastPoseEvalAt = poseCaptureTimestamp || poseTimestamp;
   ui.motionArt.src = games[selectedGame].image;
   show(ui.cue, ui.motionArt, ui.listen);
   updateHUD();
@@ -713,7 +1202,9 @@ function angle3D(a, b, c) {
 
 function handPositions(points) {
   if (!points) return [];
-  return [points.lw, points.rw].filter((point) => point && point.v >= .30);
+  return [[LM.lw, points.lw], [LM.rw, points.rw]]
+    .filter(([index, point]) => point && point.v >= .30 && landmarkInFrame(lastPose?.[index], .012))
+    .map(([, point]) => point);
 }
 
 function handsOutsideAll(targets, hands, radius) {
@@ -889,14 +1380,17 @@ function updateTouchGame(dt) {
   }
 }
 
-function squatFeatures(points) {
-  const left = lastWorldPose ? angle3D(lastWorldPose[LM.lh], lastWorldPose[LM.lk], lastWorldPose[LM.la]) : angle(points.lh, points.lk, points.la);
-  const right = lastWorldPose ? angle3D(lastWorldPose[LM.rh], lastWorldPose[LM.rk], lastWorldPose[LM.ra]) : angle(points.rh, points.rk, points.ra);
-  const kneeAngle = (left + right) / 2;
+function squatFeatures(points, metric = actionMetrics(points)) {
   const hipY = (points.lh.y + points.rh.y) / 2;
   const shoulderY = (points.ls.y + points.rs.y) / 2;
-  const torso = Math.max(40, hipY - shoulderY);
-  return { kneeAngle, hipY, torso };
+  const torso = Math.max(metric.shoulderWidth * .8, hipY - shoulderY);
+  const dualReliable = metric.leftLegQuality >= .34 && metric.rightLegQuality >= .34;
+  const bestIsLeft = metric.leftLegQuality >= metric.rightLegQuality;
+  return {
+    kneeAngle: metric.kneeAngle, hipY, torso, dualReliable,
+    bestQuality: bestIsLeft ? metric.leftLegQuality : metric.rightLegQuality,
+    bestAngle: bestIsLeft ? metric.leftKnee : metric.rightKnee
+  };
 }
 
 function exerciseFeedbackPoint(yRatio = .5) {
@@ -921,7 +1415,7 @@ function createActionGame() {
     mode: "squat", commands: ACTION_COMMANDS, commandIndex: 0, currentAction: null,
     completed: 0, reps: 0, stableMs: 0, neutralMs: 0, phase: "active",
     matching: false, progress: 0, advancing: false, sessionComplete: false,
-    commandArmed: false, baselineHipY: null, groundY: null, kneeAngle: 180
+    commandArmed: false, baselineHipY: null, baselineTorso: null, standSamples: [], groundY: null, kneeAngle: 180
   };
   activateActionCommand(state, 0);
   return state;
@@ -930,7 +1424,7 @@ function createActionGame() {
 function createFlightGame() {
   const state = {
     mode: "flight", phase: "needUp", phaseMs: 0, strokeMs: 0, invalidMs: 0,
-    upWingY: null, sinceFlapMs: Infinity, inputValid: false,
+    upWingY: null, upLevel: null, upSamples: 0, lastFlapAt: -Infinity, sinceFlapMs: Infinity, inputValid: false,
     wingsUp: false, wingsDown: false, stars: 0, flaps: 0, reps: 0,
     flightY: .52, bestAltitude: .48, velocity: 0, wingEnergy: 0,
     round: 0, prompt: null, answer: "", choices: [], answerLane: null,
@@ -999,6 +1493,8 @@ function activateActionCommand(state, index) {
   state.advancing = false;
   state.commandArmed = action?.id === "clap" && state.commands[index - 1]?.id === "airplane";
   state.baselineHipY = null;
+  state.baselineTorso = null;
+  state.standSamples = [];
   state.groundY = null;
   state.kneeAngle = 180;
   state.phase = action?.id === "oneLeg" || action?.id === "squat" ? "needStand" : "active";
@@ -1006,7 +1502,7 @@ function activateActionCommand(state, index) {
 }
 
 function actionMetrics(points) {
-  const shoulderWidth = Math.max(35, distance(points.ls, points.rs));
+  const shoulderWidth = Math.max(8, cameraRect.w * .045, distance(points.ls, points.rs));
   const shoulderMid = { x: (points.ls.x + points.rs.x) / 2, y: (points.ls.y + points.rs.y) / 2 };
   const hipMid = { x: (points.lh.x + points.rh.x) / 2, y: (points.lh.y + points.rh.y) / 2 };
   const torso = Math.max(shoulderWidth * .8, distance(shoulderMid, hipMid));
@@ -1014,11 +1510,20 @@ function actionMetrics(points) {
   const rightArm = angle(points.rh, points.rs, points.rw);
   const leftElbow = angle(points.ls, points.le, points.lw);
   const rightElbow = angle(points.rs, points.re, points.rw);
-  const leftKnee = lastWorldPose ? angle3D(lastWorldPose[LM.lh], lastWorldPose[LM.lk], lastWorldPose[LM.la]) : angle(points.lh, points.lk, points.la);
-  const rightKnee = lastWorldPose ? angle3D(lastWorldPose[LM.rh], lastWorldPose[LM.rk], lastWorldPose[LM.ra]) : angle(points.rh, points.rk, points.ra);
+  const leftKnee = angle(points.lh, points.lk, points.la);
+  const rightKnee = angle(points.rh, points.rk, points.ra);
+  const frameQuality = (...indices) => indices.every((index) => landmarkInFrame(lastPose?.[index], .008))
+    ? Math.min(...indices.map((index) => Math.min(lastPose[index].visibility ?? 1, lastPose[index].presence ?? 1)))
+    : 0;
+  const leftLegQuality = frameQuality(LM.lh, LM.lk, LM.la);
+  const rightLegQuality = frameQuality(LM.rh, LM.rk, LM.ra);
+  const leftWeight = leftLegQuality >= .28 ? leftLegQuality ** 2 : 0;
+  const rightWeight = rightLegQuality >= .28 ? rightLegQuality ** 2 : 0;
+  const weightTotal = leftWeight + rightWeight;
+  const kneeAngle = weightTotal > 0 ? (leftKnee * leftWeight + rightKnee * rightWeight) / weightTotal : 180;
   return {
     shoulderWidth, shoulderMid, hipMid, torso, leftArm, rightArm, leftElbow, rightElbow,
-    leftKnee, rightKnee, kneeAngle: (leftKnee + rightKnee) / 2,
+    leftKnee, rightKnee, leftLegQuality, rightLegQuality, kneeAngle,
     wristGap: distance(points.lw, points.rw), ankleGap: distance(points.la, points.ra)
   };
 }
@@ -1035,13 +1540,15 @@ function staticActionMatches(action, points, metric, state) {
     const touchesHead = (wrist, elbowAngle, armAngle) => {
       const dx = (wrist.x - points.nose.x) / (metric.shoulderWidth * .72);
       const dy = (wrist.y - (points.nose.y - metric.shoulderWidth * .05)) / (metric.shoulderWidth * .64);
-      return dx * dx + dy * dy < 1 && elbowAngle < 148 && armAngle > 42 && armAngle < 172;
+      return dx * dx + dy * dy < 1
+        && wrist.y > points.nose.y - metric.shoulderWidth * .12
+        && elbowAngle < 148 && armAngle > 42 && armAngle < 172;
     };
-    const leftTouches = touchesHead(points.lw, metric.leftElbow, metric.leftArm);
-    const rightTouches = touchesHead(points.rw, metric.rightElbow, metric.rightArm);
-    const leftDown = metric.leftArm < 65 && points.lw.y > metric.shoulderMid.y + metric.torso * .06;
-    const rightDown = metric.rightArm < 65 && points.rw.y > metric.shoulderMid.y + metric.torso * .06;
-    return (leftTouches && rightDown) || (rightTouches && leftDown);
+    const leftTracked = [LM.le, LM.lw].every((index) => landmarkInFrame(lastPose?.[index], .008));
+    const rightTracked = [LM.re, LM.rw].every((index) => landmarkInFrame(lastPose?.[index], .008));
+    const leftTouches = leftTracked && touchesHead(points.lw, metric.leftElbow, metric.leftArm);
+    const rightTouches = rightTracked && touchesHead(points.rw, metric.rightElbow, metric.rightArm);
+    return leftTouches || rightTouches;
   }
   if (action.id === "touchShoulders") {
     const wristMidY = (points.lw.y + points.rw.y) / 2;
@@ -1080,9 +1587,7 @@ function staticActionMatches(action, points, metric, state) {
     const wristMidY = (points.lw.y + points.rw.y) / 2;
     return distance(points.lw, points.lk) < metric.shoulderWidth * .85
       && distance(points.rw, points.rk) < metric.shoulderWidth * .85
-      && metric.leftKnee > 145 && metric.rightKnee > 145
-      && wristMidY > metric.hipMid.y + metric.torso * .35
-      && Math.abs(points.la.y - points.ra.y) < metric.torso * .12;
+      && wristMidY > metric.hipMid.y + metric.torso * .30;
   }
   if (action.id === "leanSide") {
     const lean = Math.abs(metric.shoulderMid.x - metric.hipMid.x) / metric.torso;
@@ -1169,21 +1674,35 @@ function updateActionGame(dt) {
       state.matching = ankleLift && kneeLift && supportKnee > 148 && Math.abs(supportAnkle.y - state.groundY) < metric.torso * .14 && balanced;
     }
   } else if (action.id === "squat") {
-    const feature = squatFeatures(points);
+    const feature = squatFeatures(points, metric);
     state.kneeAngle = feature.kneeAngle;
     if (state.phase === "needStand") {
-      const standing = feature.kneeAngle > 156;
-      state.neutralMs = standing ? state.neutralMs + dt : 0;
-      if (state.neutralMs >= 280) {
-        state.baselineHipY = feature.hipY;
+      const standing = feature.dualReliable
+        ? feature.kneeAngle > 156 && Math.min(metric.leftKnee, metric.rightKnee) > 150
+        : feature.bestQuality >= .45 && feature.bestAngle > 162;
+      if (standing) {
+        state.neutralMs += dt;
+        state.standSamples.push({ hipY: feature.hipY, torso: feature.torso });
+        if (state.standSamples.length > 8) state.standSamples.shift();
+      } else {
+        state.neutralMs = 0;
+        state.standSamples = [];
+      }
+      if (state.neutralMs >= 400 && state.standSamples.length >= 3) {
+        state.baselineHipY = median(state.standSamples.map((sample) => sample.hipY));
+        state.baselineTorso = median(state.standSamples.map((sample) => sample.torso));
         state.phase = "ready";
         state.neutralMs = 0;
         showToast("좋아요! 이제 천천히 앉아요");
       }
     } else {
-      const drop = (feature.hipY - (state.baselineHipY ?? feature.hipY)) / feature.torso;
-      const bottom = feature.kneeAngle < 142 && drop > .12;
-      const standing = feature.kneeAngle > 156 && drop < .11;
+      const drop = (feature.hipY - (state.baselineHipY ?? feature.hipY)) / Math.max(24, state.baselineTorso || feature.torso);
+      const bottom = feature.dualReliable
+        ? feature.kneeAngle < 156 && Math.max(metric.leftKnee, metric.rightKnee) < 166 && drop > .10
+        : feature.bestQuality >= .45 && feature.bestAngle < 150 && drop > .15;
+      const standing = feature.dualReliable
+        ? feature.kneeAngle > 156 && Math.min(metric.leftKnee, metric.rightKnee) > 150 && drop < .11
+        : feature.bestQuality >= .45 && feature.bestAngle > 162 && drop < .09;
       if (state.phase === "ready") {
         state.stableMs = bottom ? state.stableMs + dt : Math.max(0, state.stableMs - dt * 1.5);
         state.progress = clamp(state.stableMs / action.hold, 0, 1);
@@ -1224,15 +1743,15 @@ function flightLandmarksUsable() {
       && point.x >= .015 && point.x <= .985
       && point.y >= .015 && point.y <= .985;
   };
-  return [LM.ls, LM.rs].every((index) => inFrame(index, .42))
-    && [LM.le, LM.re].every((index) => inFrame(index, .34))
-    && [LM.lw, LM.rw].every((index) => inFrame(index, .38));
+  return [LM.ls, LM.rs].every((index) => inFrame(index, .38))
+    && [LM.le, LM.re].every((index) => inFrame(index, .30))
+    && [LM.lw, LM.rw].every((index) => inFrame(index, .32));
 }
 
 function flightFrameUsable(points = posePoints()) {
   if (!points || !flightLandmarksUsable()) return false;
   const shoulderRatio = distance(points.ls, points.rs) / Math.max(1, cameraRect.w);
-  return shoulderRatio >= .10 && shoulderRatio <= .30;
+  return shoulderRatio >= .085 && shoulderRatio <= .34;
 }
 
 function flightFeatures(points) {
@@ -1243,13 +1762,20 @@ function flightFeatures(points) {
   }
   const upLeft = (points.ls.y - points.lw.y) / shoulderWidth;
   const upRight = (points.rs.y - points.rw.y) / shoulderWidth;
+  const level = (upLeft + upRight) / 2;
   const sync = Math.abs(upLeft - upRight);
   const wristGap = distance(points.lw, points.rw) / shoulderWidth;
+  const leftElbow = angle(points.ls, points.le, points.lw);
+  const rightElbow = angle(points.rs, points.re, points.rw);
   const wingY = (points.lw.y + points.rw.y) / 2;
   return {
-    valid: true, shoulderWidth, wingY, upLeft, upRight, sync, wristGap,
-    wingsUp: upLeft > .35 && upRight > .35 && sync < .30 && wristGap > 1.70,
-    wingsDown: upLeft < -.70 && upRight < -.70 && sync < .35
+    valid: true, shoulderWidth, wingY, upLeft, upRight, level, sync, wristGap, leftElbow, rightElbow,
+    wingsUp: upLeft > .20 && upRight > .20 && level > .28 && sync < .50
+      && wristGap > 1.35 && leftElbow > 105 && rightElbow > 105,
+    softUp: upLeft > .08 && upRight > .08 && level > .16 && sync < .55
+      && wristGap > 1.25 && leftElbow > 100 && rightElbow > 100,
+    wingsDown: upLeft < -.22 && upRight < -.22 && level < -.32 && sync < .60
+      && wristGap > .90 && leftElbow > 95 && rightElbow > 95
   };
 }
 
@@ -1259,11 +1785,13 @@ function resetFlightStroke(state = gameState) {
   state.phaseMs = 0;
   state.strokeMs = 0;
   state.upWingY = null;
+  state.upLevel = null;
+  state.upSamples = 0;
   state.wingsUp = false;
   state.wingsDown = false;
 }
 
-function applyFlightImpulse() {
+function applyFlightImpulse(at = performance.now()) {
   const state = gameState;
   if (!state || state.advancing || state.sessionComplete) return;
   state.flaps++;
@@ -1271,6 +1799,7 @@ function applyFlightImpulse() {
   state.bestAltitude = Math.max(state.bestAltitude || 0, 1 - state.flightY);
   state.velocity = Math.max(-.36, Math.min(state.velocity, .02) - .24);
   state.wingEnergy = 1;
+  state.lastFlapAt = at;
   state.sinceFlapMs = 0;
   resetFlightStroke(state);
   tone(430, .06, "triangle", .025);
@@ -1417,30 +1946,46 @@ function updateFlightInput(dt) {
   state.inputValid = feature.valid;
   state.wingsUp = feature.wingsUp;
   state.wingsDown = feature.wingsDown;
-  state.sinceFlapMs = Math.min(5000, state.sinceFlapMs + dt);
+  const poseAt = poseCaptureTimestamp || poseTimestamp || performance.now();
+  state.sinceFlapMs = Number.isFinite(state.lastFlapAt)
+    ? clamp(poseAt - state.lastFlapAt, 0, 5000)
+    : Infinity;
   if (!feature.valid) {
     state.invalidMs += dt;
-    if (state.invalidMs >= 220) resetFlightStroke(state);
+    if (state.invalidMs >= POSE_FRESH_MS) resetFlightStroke(state);
     updateGameCue();
     return;
   }
   state.invalidMs = 0;
   if (state.phase === "needUp") {
-    state.phaseMs = feature.wingsUp ? state.phaseMs + dt : Math.max(0, state.phaseMs - dt * 2);
-    if (state.phaseMs >= 120) {
+    if (feature.wingsUp) {
       state.phase = "needDown";
       state.phaseMs = 0;
       state.strokeMs = 0;
       state.upWingY = feature.wingY;
+      state.upLevel = feature.level;
+      state.upSamples = 0;
+    } else if (feature.softUp) {
+      state.upSamples += 1;
+      if (state.upSamples >= 2) {
+        state.phase = "needDown";
+        state.phaseMs = 0;
+        state.strokeMs = 0;
+        state.upWingY = feature.wingY;
+        state.upLevel = feature.level;
+        state.upSamples = 0;
+      }
+    } else if (feature.level < .02) {
+      state.upSamples = 0;
     }
   } else {
     state.strokeMs += dt;
-    const travel = state.upWingY == null ? 0 : (feature.wingY - state.upWingY) / feature.shoulderWidth;
-    const downStroke = feature.wingsDown && travel >= 1.05 && state.strokeMs >= 160
-      && state.strokeMs <= 1400 && state.sinceFlapMs >= 280;
-    state.phaseMs = downStroke ? state.phaseMs + dt : Math.max(0, state.phaseMs - dt * 2);
-    if (state.strokeMs > 1400) resetFlightStroke(state);
-    else if (state.phaseMs >= 120) applyFlightImpulse();
+    state.upLevel = Math.max(state.upLevel ?? feature.level, feature.level);
+    const travel = (state.upLevel ?? feature.level) - feature.level;
+    const downStroke = feature.wingsDown && travel >= .60 && state.strokeMs >= 90
+      && state.strokeMs <= 1200 && state.sinceFlapMs >= 260;
+    if (state.strokeMs > 1200) resetFlightStroke(state);
+    else if (downStroke) applyFlightImpulse(poseAt);
   }
   updateGameCue();
 }
@@ -1448,8 +1993,8 @@ function updateFlightInput(dt) {
 function updateFlightPhysics(frameDt, now = performance.now()) {
   const state = gameState;
   if (selectedGame !== "jack" || !state || state.sessionComplete) return;
-  const dt = clamp(frameDt, 0, 50) / 1000;
-  const inputValid = demo || (!!lastPose && now - poseTimestamp <= FLIGHT_POSE_FRESH_MS && flightFrameUsable());
+  const dt = clamp(frameDt, 0, 100) / 1000;
+  const inputValid = demo || (!!lastPose && currentPoseAge(now) <= FLIGHT_POSE_FRESH_MS && flightFrameUsable());
   if (!inputValid) {
     state.inputValid = false;
     state.trackingReadyMs = 0;
@@ -1457,7 +2002,7 @@ function updateFlightPhysics(frameDt, now = performance.now()) {
     state.laneHoldMs = 0;
     state.stableLane = null;
     state.invalidMs += frameDt;
-    if (state.invalidMs >= 220) resetFlightStroke(state);
+    if (state.invalidMs >= POSE_FRESH_MS) resetFlightStroke(state);
     state.velocity = 0;
     state.wingEnergy = Math.max(0, state.wingEnergy - dt * 1.8);
     return;
@@ -1475,6 +2020,9 @@ function updateFlightPhysics(frameDt, now = performance.now()) {
     state.wingEnergy = Math.max(0, state.wingEnergy - dt * 1.8);
     return;
   }
+  state.sinceFlapMs = Number.isFinite(state.lastFlapAt)
+    ? Math.max(state.sinceFlapMs, clamp(now - state.lastFlapAt, 0, 5000))
+    : Infinity;
   if (state.sinceFlapMs > 650) state.velocity = Math.max(state.velocity, 0);
   state.velocity = clamp(state.velocity + .26 * dt, -.36, .18);
   state.flightY = clamp(state.flightY + state.velocity * dt, .12, .88);
@@ -1489,6 +2037,10 @@ function updateGame(dt) {
   if (selectedGame === "sequence" || selectedGame === "math") updateTouchGame(dt);
   else if (selectedGame === "squat") updateActionGame(dt);
   else updateFlightInput(dt);
+}
+
+function shouldAdvanceGameClock(usable) {
+  return running && usable && !gameState?.advancing && !gameState?.sessionComplete;
 }
 
 function updateGameCue() {
@@ -1539,16 +2091,47 @@ function updateGameCue() {
 }
 
 function poseUsable(now = performance.now()) {
-  if (!lastPose || now - poseTimestamp > 550) return false;
+  motionDiagnostics.poseAgeMs = Math.round(currentPoseAge(now));
+  if (!lastPose || currentPoseAge(now) > POSE_FRESH_MS) return false;
   if (selectedGame === "squat" && gameState?.currentAction) {
     return actionRequiredLandmarksUsable(gameState.currentAction);
   }
   if (selectedGame === "jack") return flightFrameUsable();
   if (!requiredIndices(selectedGame).every((index) => landmarkVisible(lastPose[index], .32))) return false;
   if (selectedGame === "sequence" || selectedGame === "math") {
-    return [LM.lw, LM.rw].some((index) => landmarkVisible(lastPose[index], .30));
+    return [LM.lw, LM.rw].some((index) => landmarkInFrame(lastPose[index], .012));
   }
   return true;
+}
+
+function trackingGuidance(now = performance.now()) {
+  if (!lastPose || currentPoseAge(now) > POSE_FRESH_MS) {
+    return games[selectedGame].fullBody
+      ? ["몸 전체를 다시 찾아요", "머리와 발목이 보이게 가운데에 서요"]
+      : selectedGame === "jack"
+        ? ["두 팔을 다시 찾아요", "어깨와 양손을 화면 안에 보여 주세요"]
+        : ["손을 다시 찾아요", "얼굴·어깨와 한 손을 화면 안에 보여 주세요"];
+  }
+  if (selectedGame === "sequence" || selectedGame === "math") {
+    if (![LM.lw, LM.rw].some((index) => landmarkInFrame(lastPose[index], .012))) {
+      return ["손이 화면 밖에 있어요", "한 손을 화면 안쪽으로 넣어 주세요"];
+    }
+  }
+  if (selectedGame === "jack") {
+    const points = posePoints();
+    const shoulderRatio = points ? distance(points.ls, points.rs) / Math.max(1, cameraRect.w) : 0;
+    if (shoulderRatio > .34) return ["조금 가까워요", "양손이 잘리지 않게 반 걸음 뒤로 가요"];
+    if (shoulderRatio && shoulderRatio < .085) return ["조금 멀어요", "반 걸음 앞으로 와요"];
+    return ["양손을 화면 안으로", "어깨·팔꿈치·양손을 모두 보여 주세요"];
+  }
+  if (selectedGame === "squat") {
+    const action = gameState?.currentAction;
+    const lower = ["oneLeg", "touchKnees", "squat", "leanSide"].includes(action?.id);
+    return lower
+      ? ["다리를 다시 찾아요", "엉덩이·무릎·발목이 보이게 서요"]
+      : ["팔을 다시 찾아요", "현재 동작에 쓰는 손과 팔을 보여 주세요"];
+  }
+  return ["동작을 다시 찾아요", "카메라 가운데에 서 주세요"];
 }
 
 function updateHUD() {
@@ -1563,7 +2146,7 @@ function updateHUD() {
 
 function smoothPose(raw, now) {
   if (!lastPose || now - poseTimestamp > 350) return raw.map((point) => ({ ...point }));
-  const dt = clamp(now - poseTimestamp, 16, 100);
+  const dt = clamp(now - poseTimestamp, 16, POSE_DT_MAX_MS);
   return raw.map((point, index) => {
     const previous = lastPose[index];
     if (!previous || !landmarkVisible(point, .25)) return { ...point };
@@ -1574,40 +2157,60 @@ function smoothPose(raw, now) {
 }
 
 function detectPose(now) {
-  if (poseInferenceBusy || !poseLandmarker || video.readyState < 2 || video.currentTime === lastVideoTime || now - lastInferenceAt < adaptiveInferenceInterval) return;
+  if ((!poseWorkerReady && !poseLandmarker) || video.readyState < 2 || video.currentTime === lastVideoTime || now - lastInferenceAt < adaptiveInferenceInterval) return;
+  if (poseInferenceBusy) {
+    motionDiagnostics.droppedFrames += 1;
+    return;
+  }
   poseInferenceBusy = true;
+  poseInferenceStartedAt = now;
   lastInferenceAt = now;
   lastVideoTime = video.currentTime;
+  if (poseWorkerReady && poseWorker) {
+    const worker = poseWorker;
+    const generation = poseWorkerGeneration;
+    const frameGeneration = cameraFrameGeneration;
+    let captureSettled = false;
+    const captureTimeout = setTimeout(() => {
+      if (captureSettled) return;
+      captureSettled = true;
+      poseInferenceBusy = false;
+      handlePoseRuntimeFailure(new Error("카메라 프레임 준비 시간이 초과됐습니다."), true);
+    }, 700);
+    createImageBitmap(video).then((bitmap) => {
+      if (captureSettled) {
+        bitmap.close?.();
+        return;
+      }
+      captureSettled = true;
+      clearTimeout(captureTimeout);
+      poseInferenceBusy = false;
+      if (poseWorker !== worker || !poseWorkerReady || generation !== poseWorkerGeneration || frameGeneration !== cameraFrameGeneration) {
+        bitmap.close?.();
+        return;
+      }
+      try {
+        worker.postMessage({ type: "frame", bitmap, timestamp: now, generation, frameGeneration }, [bitmap]);
+      } catch (error) {
+        bitmap.close?.();
+        handlePoseRuntimeFailure(error, true);
+      }
+    }).catch((error) => {
+      if (captureSettled) return;
+      captureSettled = true;
+      clearTimeout(captureTimeout);
+      poseInferenceBusy = false;
+      handlePoseRuntimeFailure(error, true);
+    });
+    return;
+  }
   const inferenceStartedAt = performance.now();
   try {
     const result = poseLandmarker.detectForVideo(video, now);
-    const raw = result.landmarks?.[0];
-    if (raw) {
-      lastPose = smoothPose(raw, now);
-      lastWorldPose = result.worldLandmarks?.[0] || null;
-      poseTimestamp = now;
-      poseVersion++;
-      inferenceErrors = 0;
-    } else if (now - poseTimestamp > 500) { lastPose = null; lastWorldPose = null; }
-  } catch {
-    inferenceErrors++;
-    if (inferenceErrors === 4) {
-      forceCpuPose = true;
-      try { poseLandmarker?.close?.(); } catch {}
-      poseLandmarker = null;
-      poseLoading = null;
-      running = calibrating = countdownActive = false;
-      countdownAttemptId += 1;
-      stopCamera();
-      hide(ui.calibrate, ui.cue, ui.countdown);
-      show(ui.loading);
-      showCameraError({ name: "PoseRuntimeError" });
-    }
+    acceptPoseResult(result.landmarks?.[0], result.worldLandmarks?.[0], now, performance.now() - inferenceStartedAt);
+  } catch (error) {
+    handlePoseRuntimeFailure(error);
   } finally {
-    const inferenceCost = performance.now() - inferenceStartedAt;
-    adaptiveInferenceInterval = inferenceCost > 48
-      ? Math.min(100, adaptiveInferenceInterval + 8)
-      : Math.max(POSE_INFERENCE_INTERVAL, adaptiveInferenceInterval - 2);
     poseInferenceBusy = false;
   }
 }
@@ -1634,13 +2237,15 @@ function drawBackground() {
     ctx.strokeStyle = "#ffffffdd";
     ctx.lineWidth = 4;
     ctx.strokeRect(cameraRect.x, cameraRect.y, cameraRect.w, cameraRect.h);
-    const cameraHint = games[selectedGame].fullBody ? "몸을 크게 ⭐" : selectedGame === "jack" ? "두 팔을 보여요 🪽" : "손을 흔들어요 👋";
-    drawCanvasPill(cameraRect.x + 70, cameraRect.y + 18, cameraHint, "#28775f", true);
+    if (!running) {
+      const cameraHint = games[selectedGame].fullBody ? "머리부터 발목까지 ⭐" : selectedGame === "jack" ? "두 팔을 보여요 🪽" : "손을 흔들어요 👋";
+      drawCanvasPill(cameraRect.x + 70, cameraRect.y + 18, cameraHint, "#28775f", true);
+    }
   }
 }
 
 function poseIsFresh(now = performance.now()) {
-  return !!lastPose && now - poseTimestamp <= 550;
+  return !!lastPose && currentPoseAge(now) <= POSE_FRESH_MS;
 }
 
 function landmarkSignal(index) {
@@ -1908,7 +2513,7 @@ function drawLearningPrompt() {
   const compactLandscape = viewH < 420 && viewW > viewH;
   const prompt = gameState.prompt;
   const x = cameraRect.x + cameraRect.w / 2;
-  const y = cameraRect.y + (compactLandscape ? 28 : 42);
+  let y = cameraRect.y + (compactLandscape ? 52 : 42);
   const progress = selectedGame === "sequence"
     ? [...prompt.word].map((letter, index) => index < gameState.current - 1 ? letter : "_").join(" ")
     : prompt.ko;
@@ -1917,6 +2522,20 @@ function drawLearningPrompt() {
   ctx.font = `400 ${compactLandscape ? 18 : viewW < 700 ? 24 : 30}px Jua`;
   const width = clamp(ctx.measureText(text).width + 30, 112, Math.max(112, cameraRect.w - 24));
   const height = compactLandscape ? 34 : viewW < 700 ? 48 : 58;
+  if (!ui.cue.classList.contains("hidden")) {
+    const appBounds = app.getBoundingClientRect();
+    const cueBounds = ui.cue.getBoundingClientRect();
+    const cueLeft = cueBounds.left - appBounds.left;
+    const cueRight = cueBounds.right - appBounds.left;
+    const cueBottom = cueBounds.bottom - appBounds.top;
+    const overlapsHorizontally = cueRight > x - width / 2 - 8 && cueLeft < x + width / 2 + 8;
+    if (compactLandscape && overlapsHorizontally) {
+      ctx.restore();
+      return;
+    }
+    if (overlapsHorizontally && cueBottom > cameraRect.y - 8) y = Math.max(y, cueBottom + height / 2 + 8);
+  }
+  y = clamp(y, cameraRect.y + height / 2 + 7, cameraRect.y + cameraRect.h - height / 2 - 7);
   roundedRectPath(x - width / 2, y - height / 2, width, height, height / 2);
   ctx.fillStyle = "#fffaf0f2";
   ctx.strokeStyle = "#ffd65a";
@@ -1934,6 +2553,7 @@ function drawLearningPrompt() {
 
 function drawTouchGame() {
   if (!gameState?.targets) return;
+  drawLearningPrompt();
   for (const target of gameState.targets) {
     const active = selectedGame === "math" || target.order === gameState.current;
     const completed = selectedGame === "sequence" && target.order < gameState.current;
@@ -2316,23 +2936,24 @@ function burst(x, y, color) {
 }
 
 function drawTrackingPause() {
-  const fullBody = games[selectedGame].fullBody;
-  const flight = selectedGame === "jack";
+  const [title, detail] = trackingGuidance();
   ctx.save();
   ctx.fillStyle = "#030207aa";
   ctx.fillRect(0, 0, viewW, viewH);
   ctx.fillStyle = "#ffb15b";
   ctx.textAlign = "center";
   ctx.font = `700 ${viewW < 700 ? 22 : 30}px IBM Plex Sans KR`;
-  ctx.fillText(fullBody ? "몸 전체를 다시 보여주세요" : flight ? "어깨와 두 손을 다시 보여주세요" : "얼굴·어깨와 한 손을 보여주세요", viewW / 2, viewH / 2);
+  ctx.fillText(title, viewW / 2, viewH / 2);
   ctx.fillStyle = "#c9c5d1";
   ctx.font = "400 13px IBM Plex Sans KR";
-  ctx.fillText(fullBody ? "인식되는 동안 게임 시간은 멈춥니다" : flight ? "화면 중앙에서 양팔을 크게 펄럭여요" : "한 손이 다시 보이면 바로 이어져요", viewW / 2, viewH / 2 + 30);
+  ctx.fillText(`${detail} · 게임 시간은 멈춰 있어요`, viewW / 2, viewH / 2 + 30);
   ctx.restore();
 }
 
 function render(now) {
-  const frameDt = clamp(now - lastFrameAt, 0, 50);
+  const rawFrameDt = Math.max(0, now - lastFrameAt);
+  const frameDt = clamp(rawFrameDt, 0, 100);
+  const elapsedDt = clamp(rawFrameDt, 0, 250);
   lastFrameAt = now;
   drawBackground();
   if (!demo) detectPose(now);
@@ -2346,22 +2967,29 @@ function render(now) {
     let trackingPaused = false;
     if (usable) {
       lastUsablePoseAt = demo ? now : poseTimestamp;
-      gameElapsed += frameDt;
+      trackingInvalidSince = 0;
+      trackingInputReset = false;
+      if (shouldAdvanceGameClock(usable)) gameElapsed += elapsedDt;
       if (demo || poseVersion !== evaluatedPoseVersion) {
-        const poseDt = demo ? frameDt : clamp(poseTimestamp - lastPoseEvalAt, 16, 80);
-        updateGame(poseDt);
+        const captureAt = poseCaptureTimestamp || poseTimestamp;
+        const poseGap = lastPoseEvalAt ? captureAt - lastPoseEvalAt : adaptiveInferenceInterval;
+        if (!demo && poseGap > POSE_FRESH_MS) rearmGameInput();
+        else updateGame(demo ? frameDt : clamp(poseGap, 16, POSE_DT_MAX_MS));
         evaluatedPoseVersion = poseVersion;
-        lastPoseEvalAt = poseTimestamp;
+        lastPoseEvalAt = captureAt;
       }
       setTracking(demo ? "체험 모드" : "동작 인식 중", "good");
-    } else if (lastUsablePoseAt && now - lastUsablePoseAt < 750) {
-      setTracking("잠깐 다시 찾는 중", "warn");
     } else {
-      const trackingHint = games[selectedGame].fullBody ? "몸 전체를 보여주세요" : selectedGame === "jack" ? "어깨와 두 손을 보여주세요" : "얼굴·어깨와 한 손을 보여주세요";
-      setTracking(trackingHint, "warn");
-      trackingPaused = true;
+      trackingInvalidSince ||= now;
+      const invalidFor = now - trackingInvalidSince;
+      if (invalidFor >= 140 && !trackingInputReset) {
+        rearmGameInput();
+        trackingInputReset = true;
+      }
+      const [trackingTitle] = trackingGuidance(now);
+      setTracking(trackingTitle, "warn");
+      trackingPaused = invalidFor >= 220;
     }
-    if (trackingPaused && !trackingWasPaused) rearmGameInput();
     trackingWasPaused = trackingPaused;
     if (selectedGame === "sequence" || selectedGame === "math") drawTouchGame(); else drawExerciseGame();
     drawHandCursors(now);
@@ -2369,18 +2997,21 @@ function render(now) {
     drawTrackingSignal(now);
     if (trackingPaused) drawTrackingPause();
     updateHUD();
-    if (gameElapsed >= games[selectedGame].ms && !gameState?.advancing) endGame();
+    if (gameElapsed >= games[selectedGame].ms && !gameState?.advancing && !gameState?.sessionComplete) endGame();
   }
 
-  if (running || calibrating || countdownActive) requestAnimationFrame(render);
-  else renderLoopActive = false;
+  if (running || calibrating || countdownActive) renderFrameId = requestAnimationFrame(render);
+  else {
+    renderLoopActive = false;
+    renderFrameId = 0;
+  }
 }
 
 function startRenderLoop() {
   if (renderLoopActive) return;
   renderLoopActive = true;
   lastFrameAt = performance.now();
-  requestAnimationFrame(render);
+  renderFrameId = requestAnimationFrame(render);
 }
 
 function endGame() {
@@ -2417,10 +3048,12 @@ function endGame() {
   tone(660, .18, "triangle", .08);
   setTimeout(() => tone(880, .35, "triangle", .08), 180);
   show(ui.result);
+  ui.result.focus({ preventScroll: true });
 }
 
 function returnToMenu() {
   cameraAttemptId += 1;
+  cameraStartInProgress = false;
   countdownAttemptId += 1;
   running = calibrating = countdownActive = false;
   speechRoundToken++;
@@ -2507,6 +3140,7 @@ $("#homeBtn").onclick = returnToMenu;
 $("#soundBtn").onclick = (event) => {
   sound = !sound;
   event.currentTarget.classList.toggle("off", !sound);
+  event.currentTarget.setAttribute("aria-pressed", String(sound));
   if (!sound) try { speechSynthesis.cancel(); } catch {}
   else if (running) announceRound();
 };
@@ -2525,8 +3159,12 @@ $("#listenBtn").onclick = () => {
 };
 
 document.querySelectorAll(".game-card").forEach((card) => card.addEventListener("click", () => {
-  document.querySelectorAll(".game-card").forEach((item) => item.classList.remove("active"));
+  document.querySelectorAll(".game-card").forEach((item) => {
+    item.classList.remove("active");
+    item.setAttribute("aria-pressed", "false");
+  });
   card.classList.add("active");
+  card.setAttribute("aria-pressed", "true");
   selectedGame = card.dataset.game;
   ui.motionArt.src = games[selectedGame].image;
   ui.motionArt.alt = `${games[selectedGame].name} 동작 안내`;
@@ -2539,7 +3177,66 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) wakeLock?.release?.().catch(() => {});
   else if (running) navigator.wakeLock?.request("screen").then((lock) => wakeLock = lock).catch(() => {});
 });
-addEventListener("pagehide", stopCamera);
+
+addEventListener("pagehide", () => {
+  const demoActive = demo && (running || countdownActive);
+  resumeCameraAfterPageShow = cameraStartInProgress || demoActive
+    || (!demo && !!stream && (running || calibrating || countdownActive));
+  resumeCameraMode = cameraStartInProgress ? "starting" : demoActive ? "demo" : running ? "running" : "calibrating";
+  clearTimeout(orientationTimer);
+  orientationTimer = 0;
+  cameraAttemptId += 1;
+  if (countdownActive) {
+    countdownAttemptId += 1;
+    countdownActive = false;
+    hide(ui.countdown);
+  }
+  if (renderFrameId) cancelAnimationFrame(renderFrameId);
+  renderFrameId = 0;
+  renderLoopActive = false;
+  stopCamera();
+});
+
+addEventListener("pageshow", () => {
+  if (!resumeCameraAfterPageShow) return;
+  resumeCameraAfterPageShow = false;
+  const resumeMode = resumeCameraMode;
+  if (resumeMode === "starting") {
+    cameraStartInProgress = false;
+    void startCamera();
+    return;
+  }
+  if (resumeMode === "demo") {
+    if (!running) void startCountdown();
+    startRenderLoop();
+    return;
+  }
+  if (cameraStreamReady && stream?.getVideoTracks?.().some((track) => track.readyState === "live")) {
+    if (resumeMode === "running") rearmGameInput();
+    startRenderLoop();
+    return;
+  }
+  const attemptId = ++cameraAttemptId;
+  setTracking("카메라 다시 연결 중", "warn");
+  void (async () => {
+    try {
+      if (!(await openCamera(attemptId))) return;
+      await loadPose();
+      if (attemptId !== cameraAttemptId) return;
+      if (resumeMode === "running" && gameState) {
+        running = true;
+        calibrating = false;
+        rearmGameInput();
+        show(ui.cue, ui.motionArt, ui.listen, ui.home);
+      } else beginCalibration();
+      startRenderLoop();
+    } catch (error) {
+      running = calibrating = countdownActive = false;
+      show(ui.loading);
+      showCameraError(error);
+    }
+  })();
+});
 
 window.__MOTION_TEST__ = {
   start(game = "sequence") {
@@ -2608,13 +3305,16 @@ function syntheticPose(preset) {
   return pose;
 }
 
-function feedSyntheticPose(preset, frames = 10) {
+function feedSyntheticPose(preset, frames = 10, dt = 33) {
+  let syntheticAt = Math.max(poseCaptureTimestamp || 0, performance.now());
   for (let i = 0; i < frames; i++) {
     lastPose = syntheticPose(preset);
     lastWorldPose = syntheticPose(preset);
-    poseTimestamp = performance.now();
+    syntheticAt += dt;
+    poseCaptureTimestamp = syntheticAt;
+    poseTimestamp = syntheticAt;
     poseVersion++;
-    updateGame(33);
+    updateGame(dt);
   }
 }
 
@@ -2653,6 +3353,30 @@ function runEngineSelfTest() {
   results.sequence = { pass: gameState.current === 2 && hits === 1 && feedbacks.at(-1)?.type === "good" && WORDS.some((item)=>item.word===spellWord), word:spellWord, current: gameState.current, hits, feedback: feedbacks.at(-1)?.detail };
   selectedGame = "math";resetScore();gameState=createGameState("math");completeMathTarget(gameState.targets.find((target)=>target.value===gameState.answer));
   results.math = { pass: hits === 1 && score > 0 && WORDS.some((item)=>feedbacks.at(-1)?.detail?.includes(item.word)), answer:feedbacks.at(-1)?.detail, hits, score, feedback: feedbacks.at(-1)?.detail };
+  selectedGame = "math";resetScore();gameState=createGameState("math");
+  const outOfFrameTouch = syntheticPose("stand");
+  outOfFrameTouch[LM.lw].x = -.04;
+  outOfFrameTouch[LM.rw].visibility = outOfFrameTouch[LM.rw].presence = .1;
+  lastPose = outOfFrameTouch;lastWorldPose = outOfFrameTouch;
+  const trackingNow = performance.now();poseTimestamp = trackingNow;
+  const outOfFrameTouchUsable = poseUsable(trackingNow);
+  const outOfFrameHandCount = handPositions(posePoints()).length;
+  lastPose = syntheticPose("stand");lastWorldPose = lastPose;
+  poseTimestamp = trackingNow - POSE_FRESH_MS + 1;
+  const freshBoundaryAccepted = poseUsable(trackingNow);
+  poseTimestamp = trackingNow - POSE_FRESH_MS - 1;
+  const staleBoundaryRejected = !poseUsable(trackingNow);
+  running = true;gameState.advancing = true;
+  const feedbackClockPaused = !shouldAdvanceGameClock(true);
+  gameState.advancing = false;
+  const activeClockRuns = shouldAdvanceGameClock(true);
+  running = false;
+  results.tracking = {
+    pass: !outOfFrameTouchUsable && outOfFrameHandCount === 0 && freshBoundaryAccepted
+      && staleBoundaryRejected && feedbackClockPaused && activeClockRuns,
+    outOfFrameTouchUsable, outOfFrameHandCount, freshBoundaryAccepted,
+    staleBoundaryRejected, feedbackClockPaused, activeClockRuns
+  };
   selectedGame = "squat";resetScore();gameState=createGameState("squat");
   const noHeadroom = syntheticPose("stand");
   POSE_JOINTS.forEach((index) => noHeadroom[index].y -= .07);
@@ -2693,7 +3417,7 @@ function runEngineSelfTest() {
     const actionId = gameState.currentAction.id;
     actionOrder.push(actionId);
     if (actionId === "oneLeg") { feedSyntheticPose("stand", 12); feedSyntheticPose("oneLeg", 16); }
-    else if (actionId === "squat") { feedSyntheticPose("stand", 12); feedSyntheticPose("squat", 12); feedSyntheticPose("stand", 12); }
+    else if (actionId === "squat") { feedSyntheticPose("stand", 16); feedSyntheticPose("squat", 12); feedSyntheticPose("stand", 12); }
     else feedSyntheticPose(actionId, 16);
   }
   results.squat = { pass: gameState.completed === ACTION_COMMANDS.length && gameState.sessionComplete && completedRun && new Set(actionOrder).size === ACTION_COMMANDS.length, completed:gameState.completed, order:actionOrder, feedback:feedbacks.at(-1)?.label };
@@ -2701,7 +3425,7 @@ function runEngineSelfTest() {
   selectedGame = "jack";
   const flightFrameNegatives = {};
   demo = false;
-  for (const [name, leftShoulderX, rightShoulderX] of [["tooNear", .30, .70], ["tooFar", .455, .545]]) {
+  for (const [name, leftShoulderX, rightShoulderX] of [["tooNear", .30, .70], ["tooFar", .46, .54]]) {
     resetScore();gameState=createGameState("jack");
     const pose = syntheticPose("flightUp");
     pose[LM.ls].x = leftShoulderX;
@@ -2741,6 +3465,21 @@ function runEngineSelfTest() {
     resetScore();gameState=createGameState("jack");feedSyntheticPose(preset,20);
     rejectedFlightPoses[preset] = gameState.flaps;
   }
+  resetScore();gameState=createGameState("jack");
+  feedSyntheticPose("flightUp", 1, 125);
+  feedSyntheticPose("stand", 1, 125);
+  const lowHzFirstFlap = gameState.flaps;
+  feedSyntheticPose("stand", 8, 125);
+  const lowHzHeldDown = gameState.flaps;
+  feedSyntheticPose("flightUp", 1, 125);
+  feedSyntheticPose("stand", 1, 125);
+  const lowHzSecondFlap = gameState.flaps;
+  resetScore();gameState=createGameState("jack");
+  feedSyntheticPose("flightUp", 1, 125);
+  feedSyntheticPose("stand", 1, 250);
+  const oneDroppedFrameFlap = gameState.flaps;
+  const oneDropGapAccepted = 250 <= POSE_FRESH_MS;
+  const twoDropGapRejected = 375 > POSE_FRESH_MS;
   resetScore();gameState=createGameState("jack");
   feedSyntheticPose("stand",12);
   feedSyntheticPose("flightUp",12);
@@ -2817,6 +3556,8 @@ function runEngineSelfTest() {
     pass: Object.values(flightFrameNegatives).every((item) => item.landmarkUsable
         && !item.frameUsable && !item.featureValid && !item.poseUsable && !item.inputValid && item.frozen)
       && Object.values(rejectedFlightPoses).every((count) => count === 0)
+      && lowHzFirstFlap === 1 && lowHzHeldDown === 1 && lowHzSecondFlap === 2
+      && oneDroppedFrameFlap === 1 && oneDropGapAccepted && twoDropGapRejected
       && flapsWhileHeldUp === 0 && flapsAfterFirstStroke === 1 && flapsWhileHeldDown === 1
       && starsAfterFirstStroke === 0
       && afterRiseY < beforeRiseY && afterIdleFallY > afterRiseY
@@ -2825,7 +3566,8 @@ function runEngineSelfTest() {
       && flightChoices.length === FLIGHT_WORD_GOAL * 2 && new Set(flightChoices).size === FLIGHT_WORD_GOAL * 2
       && wordDeck.length === 0 && gameState.stars === FLIGHT_WORD_GOAL && hits === FLIGHT_WORD_GOAL
       && gameState.sessionComplete && completedRun,
-    flightFrameNegatives, rejectedFlightPoses, flapsWhileHeldUp, flapsAfterFirstStroke,
+    flightFrameNegatives, rejectedFlightPoses, lowHzFirstFlap, lowHzHeldDown, lowHzSecondFlap,
+    oneDroppedFrameFlap, oneDropGapAccepted, twoDropGapRejected, flapsWhileHeldUp, flapsAfterFirstStroke,
     flapsWhileHeldDown, starsAfterFirstStroke, beforeRiseY, afterRiseY, afterIdleFallY,
     stalledPoseFrozen, centerRetry, wrongLocked, retryRearmed, repeatedWrongNotCounted, gateCrossedOnce, flightPrompts, flightChoices,
     flightAnswerLanes, stars:gameState.stars, phase:gameState.phase, feedback:feedbacks.at(-1)?.label
@@ -2836,7 +3578,19 @@ function runEngineSelfTest() {
   document.documentElement.dataset.selftest = JSON.stringify(results);
 }
 
-if (new URLSearchParams(location.search).has("selftest")) runEngineSelfTest();
+if (new URLSearchParams(location.search).has("selftest")) {
+  window.__MOTION_LIFECYCLE_TEST__ = {
+    openCamera,
+    stopCamera,
+    waitForPoseCandidate,
+    setCameraAttempt(value) { cameraAttemptId = value; },
+    setPoseLoadGeneration(value) { poseLoadGeneration = value; },
+    cameraState() {
+      return { attemptId: cameraAttemptId, stream, ready: cameraStreamReady, srcObject: video.srcObject };
+    }
+  };
+  runEngineSelfTest();
+}
 
 setTracking("카메라 대기");
 drawBackground();
