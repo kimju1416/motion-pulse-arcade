@@ -293,8 +293,18 @@ addEventListener("orientationchange", () => {
 });
 video.addEventListener("resize", resize);
 resize();
+// #app의 레이아웃이 아직 확정되지 않으면 초기 resize()가 캔버스를 1x1로 잡아
+// 화면이 텅 비어 보일 수 있다. 크기가 잡힐 때까지 짧게 재시도한다.
 if (app.getBoundingClientRect().width <= 1 || app.getBoundingClientRect().height <= 1) {
-  requestAnimationFrame(() => requestAnimationFrame(resize));
+  (function retrySize(tries) {
+    const b = app.getBoundingClientRect();
+    if (b.width > 1 && b.height > 1) { resize(); return; }
+    if (tries < 40) setTimeout(() => retrySize(tries + 1), 100);
+  })(0);
+}
+// 이후 화면 크기 변화(회전 등)는 ResizeObserver로도 대응한다.
+if (typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(resize).observe(app);
 }
 
 function setTracking(text, state = "") {
