@@ -23,6 +23,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Check game engine
+        run: |
+          node --check app.js
+          node --check pose-worker.js
+          node --check tests/engine-selftest.cjs
+          node --check tests/pose-worker-selftest.cjs
+          node tests/engine-selftest.cjs
+          node tests/pose-worker-selftest.cjs
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload site
