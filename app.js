@@ -293,6 +293,9 @@ addEventListener("orientationchange", () => {
 });
 video.addEventListener("resize", resize);
 resize();
+if (app.getBoundingClientRect().width <= 1 || app.getBoundingClientRect().height <= 1) {
+  requestAnimationFrame(() => requestAnimationFrame(resize));
+}
 
 function setTracking(text, state = "") {
   ui.tracking.className = `tracking-status ${state}`.trim();
