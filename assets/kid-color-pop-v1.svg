@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-label="컬러 팝 놀이">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8fdcff"/>
+      <stop offset="1" stop-color="#e6f9ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#sky)"/>
+  <!-- 색 구름들 -->
+  <g>
+    <g transform="translate(85,80)">
+      <ellipse cx="0" cy="0" rx="62" ry="34" fill="#ef4056"/>
+      <circle cx="-34" cy="-14" r="24" fill="#ef4056"/>
+      <circle cx="8" cy="-22" r="28" fill="#ef4056"/>
+      <circle cx="38" cy="-8" r="20" fill="#ef4056"/>
+      <text x="0" y="8" text-anchor="middle" font-family="Arial, sans-serif" font-weight="900" font-size="26" fill="#ffffff">RED</text>
+    </g>
+    <g transform="translate(305,80)">
+      <ellipse cx="0" cy="0" rx="62" ry="34" fill="#3b82f6"/>
+      <circle cx="-34" cy="-14" r="24" fill="#3b82f6"/>
+      <circle cx="8" cy="-22" r="28" fill="#3b82f6"/>
+      <circle cx="38" cy="-8" r="20" fill="#3b82f6"/>
+      <text x="0" y="8" text-anchor="middle" font-family="Arial, sans-serif" font-weight="900" font-size="24" fill="#ffffff">BLUE</text>
+    </g>
+    <g transform="translate(200,42)">
+      <ellipse cx="0" cy="0" rx="44" ry="24" fill="#ffd23e"/>
+      <circle cx="-22" cy="-10" r="16" fill="#ffd23e"/>
+      <circle cx="10" cy="-14" r="18" fill="#ffd23e"/>
+      <text x="0" y="7" text-anchor="middle" font-family="Arial, sans-serif" font-weight="900" font-size="16" fill="#6b4e00">YELLOW</text>
+    </g>
+  </g>
+  <!-- 아이 -->
+  <g transform="translate(200,215)">
+    <circle cx="0" cy="-52" r="26" fill="#ffd9b8"/>
+    <path d="M-26,-58 a26,26 0 0 1 52,0 l-6,-2 a20,20 0 0 0 -40,0 z" fill="#5b4632"/>
+    <circle cx="-9" cy="-54" r="3.2" fill="#33261a"/>
+    <circle cx="9" cy="-54" r="3.2" fill="#33261a"/>
+    <path d="M-8,-44 q8,7 16,0" stroke="#d97b64" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <rect x="-20" y="-28" width="40" height="52" rx="18" fill="#2fa85c"/>
+    <!-- 두 팔을 위로 뻗음 -->
+    <path d="M-18,-20 Q-56,-52 -74,-92" stroke="#ffd9b8" stroke-width="14" fill="none" stroke-linecap="round"/>
+    <path d="M18,-20 Q56,-52 74,-92" stroke="#ffd9b8" stroke-width="14" fill="none" stroke-linecap="round"/>
+    <circle cx="-76" cy="-96" r="10" fill="#ffd9b8"/>
+    <circle cx="76" cy="-96" r="10" fill="#ffd9b8"/>
+    <rect x="-18" y="22" width="14" height="34" rx="7" fill="#37538c"/>
+    <rect x="4" y="22" width="14" height="34" rx="7" fill="#37538c"/>
+    <ellipse cx="-11" cy="60" rx="13" ry="7" fill="#f6f7f9"/>
+    <ellipse cx="11" cy="60" rx="13" ry="7" fill="#f6f7f9"/>
+  </g>
+  <!-- 바닥 -->
+  <ellipse cx="200" cy="285" rx="150" ry="14" fill="#bfe9c9"/>
+  <!-- 반짝이 -->
+  <g fill="#ffffff" opacity=".85">
+    <path d="M52 160 l4 10 10 4 -10 4 -4 10 -4 -10 -10 -4 10 -4 z"/>
+    <path d="M352 150 l3 8 8 3 -8 3 -3 8 -3 -8 -8 -3 8 -3 z"/>
+  </g>
+</svg>

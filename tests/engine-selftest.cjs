@@ -114,7 +114,7 @@ const canvasContext = new Proxy({
 
 elementForSelector("#gameCanvas").getContext = () => canvasContext;
 
-const gameCards = ["sequence", "math", "squat", "jack"].map((game) => {
+const gameCards = ["sequence", "math", "squat", "color"].map((game) => {
   const card = new MockElement(`game-${game}`);
   card.dataset.game = game;
   return card;
