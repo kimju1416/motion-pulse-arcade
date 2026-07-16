@@ -192,7 +192,7 @@ const games = {
   sequence: { name: "SPELL POP · 10 WORDS", ms: 100000, image: "assets/kid-spell-pop-v1.webp", fullBody: false, description: "한국어 그림 힌트를 보고 서로 다른 영어 단어 10개의 철자를 완성해요." },
   math: { name: "PICTURE PICK · 10 WORDS", ms: 90000, image: "assets/kid-picture-pick-v1.webp", fullBody: false, description: "한국어 문제 10개를 듣고 알맞은 영어 단어를 손으로 골라요." },
   squat: { name: "LISTEN & MOVE · 10 MISSIONS", ms: 130000, image: "assets/kid-action-missions-v2.webp", fullBody: true, description: "서로 다른 영어 동작 10개를 듣고 차례로 따라 해요." },
-  color: { name: "COLOR POP · 10 COLORS", ms: 90000, image: "assets/kid-color-pop-v1.svg", fullBody: false, description: "색깔 문제를 듣고 위쪽 좌·우 색 구름에서 정답을 빠르게 터치해요." }
+  color: { name: "COLOR POP · 10 COLORS", ms: 90000, image: "assets/kid-color-pop-v2.webp", fullBody: false, description: "색깔 문제를 듣고 위쪽 좌·우 색 구름에서 정답을 빠르게 터치해요." }
 };
 
 let selectedGame = "math";
