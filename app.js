@@ -271,30 +271,32 @@ const MOUTH_CORE = [...FACE_CORE, LM.lmouth, LM.rmouth];
 // 미션 은행. 한 판에 ACTION_ROUND_MISSIONS개를 무작위로 뽑아 무작위 순서로 낸다.
 // ko는 실제 판정 조건을 그대로 풀어 쓴다 — 설명과 인식이 다르면 아이가 헤맨다.
 // oneHand: 반대쪽 팔이 화면 밖이어도 진행. armed: 손을 벌렸다 모으는 "동작"이라 준비 단계가 필요.
+// en은 화면에 보이는 동시에 음성으로도 읽힌다. 한 손인지 두 손인지를 en에 넣어야
+// 아이가 한글 자막을 못 읽어도 귀로 알 수 있다.
 const ACTION_COMMANDS = [
   // --- 팔·몸 ---
-  { id: "handsUp", en: "Raise your hands!", ko: "두 팔을 머리 위로 쭉 뻗어요", emoji: "🙌", required: UPPER_CORE, focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "handsUp", en: "Raise both hands high!", ko: "두 팔을 머리 위로 쭉 뻗어요", emoji: "🙌", required: UPPER_CORE, focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
   { id: "raiseOneHand", en: "Raise one hand!", ko: "한 손만 번쩍 들어요 (반대 손은 아래로)", emoji: "🙋", oneHand: true, required: UPPER_CORE, focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "touchShoulders", en: "Touch your shoulders!", ko: "두 손으로 내 양쪽 어깨를 잡아요", emoji: "🤗", required: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "airplane", en: "Make an airplane!", ko: "두 팔을 어깨높이에서 옆으로 쭉 펴요", emoji: "✈️", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "reachSide", en: "Reach out to the side!", ko: "한 팔만 옆으로 쭉 펴요 (반대 손은 아래로)", emoji: "👉", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "clap", en: "Clap your hands!", ko: "손을 벌렸다가 가슴 앞에서 짝! 마주쳐요", emoji: "👏", armed: true, hold: ACTION_CLAP_HOLD_MS, required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "touchShoulders", en: "Touch both shoulders!", ko: "두 손으로 내 양쪽 어깨를 잡아요", emoji: "🤗", required: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "airplane", en: "Open both arms wide!", ko: "두 팔을 어깨높이에서 옆으로 쭉 펴요", emoji: "✈️", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "reachSide", en: "Reach out with one arm!", ko: "한 팔만 옆으로 쭉 펴요 (반대 손은 아래로)", emoji: "👉", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "clap", en: "Clap your hands in front!", ko: "손을 벌렸다가 가슴 앞에서 짝! 마주쳐요", emoji: "👏", armed: true, hold: ACTION_CLAP_HOLD_MS, required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw] },
   { id: "clapHigh", en: "Clap over your head!", ko: "손을 벌렸다가 머리 위에서 짝! 마주쳐요", emoji: "🎉", armed: true, hold: ACTION_CLAP_HOLD_MS, required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.nose, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "crossArms", en: "Cross your arms!", ko: "두 팔을 가슴 앞에서 X자로 겹쳐요", emoji: "🙅", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "handsOnHips", en: "Hands on your hips!", ko: "두 손을 허리 양옆에 올리고 팔꿈치를 벌려요", emoji: "🕺", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh] },
-  { id: "showMuscles", en: "Show your muscles!", ko: "팔꿈치를 옆으로 벌리고 굽혀서 알통을 만들어요", emoji: "💪", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "touchTummy", en: "Touch your tummy!", ko: "두 손을 모아 배 위에 얹어요", emoji: "👐", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.lw, LM.rw, LM.lh, LM.rh] },
+  { id: "crossArms", en: "Cross both arms!", ko: "두 팔을 가슴 앞에서 X자로 겹쳐요", emoji: "🙅", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "crossArmsHigh", en: "Make an X over your head!", ko: "두 팔을 머리 위로 올려 X자로 겹쳐요", emoji: "❌", required: UPPER_CORE, focus: [LM.nose, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "handsOnHips", en: "Put both hands on your hips!", ko: "두 손을 허리 양옆에 올리고 팔꿈치를 벌려요", emoji: "🕺", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh] },
+  { id: "showMuscles", en: "Make muscles with both arms!", ko: "팔꿈치를 옆으로 벌리고 굽혀서 알통을 만들어요", emoji: "💪", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "touchTummy", en: "Touch your tummy with both hands!", ko: "두 손을 모아 배 위에 얹어요", emoji: "👐", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.lw, LM.rw, LM.lh, LM.rh] },
+  { id: "touchElbow", en: "Touch your elbow with one hand!", ko: "한 손으로 반대쪽 팔꿈치를 잡아요", emoji: "🤝", required: UPPER_CORE, focus: [LM.le, LM.re, LM.lw, LM.rw] },
 
   // --- 얼굴·머리 ---
-  { id: "touchHead", en: "Touch your head!", ko: "한 손을 머리 꼭대기에 얹어요", emoji: "🧢", oneHand: true, required: FACE_CORE, focus: [LM.nose, LM.leye, LM.reye, LM.lw, LM.rw] },
-  { id: "touchFace", en: "Touch your face!", ko: "한 손으로 얼굴을 짚어요", emoji: "😊", oneHand: true, required: UPPER_CORE, focus: [LM.nose, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "touchNose", en: "Touch your nose!", ko: "한 손 손끝으로 코를 콕 짚어요", emoji: "👃", oneHand: true, required: MOUTH_CORE, focus: [LM.nose, LM.lw, LM.rw] },
-  { id: "touchEyes", en: "Cover your eyes!", ko: "두 손으로 양쪽 눈을 가려요", emoji: "🙈", required: MOUTH_CORE, focus: [LM.leye, LM.reye, LM.lw, LM.rw] },
-  { id: "touchEars", en: "Touch your ears!", ko: "두 손으로 양쪽 귀를 잡아요", emoji: "👂", required: MOUTH_CORE, focus: [LM.lear, LM.rear, LM.lw, LM.rw] },
-  { id: "touchMouth", en: "Touch your mouth!", ko: "한 손을 입에 대요", emoji: "🤫", oneHand: true, required: MOUTH_CORE, focus: [LM.lmouth, LM.rmouth, LM.lw, LM.rw] },
-  { id: "touchCheeks", en: "Touch your cheeks!", ko: "두 손을 양쪽 볼에 대요", emoji: "😙", required: MOUTH_CORE, focus: [LM.lmouth, LM.rmouth, LM.lear, LM.rear, LM.lw, LM.rw] },
-  { id: "touchChin", en: "Touch your chin!", ko: "한 손으로 턱을 받쳐요", emoji: "🤔", oneHand: true, required: MOUTH_CORE, focus: [LM.lmouth, LM.rmouth, LM.lw, LM.rw] },
-  { id: "tiltHead", en: "Tilt your head!", ko: "어깨는 그대로 두고 고개만 옆으로 갸웃 기울여요", emoji: "🙃", noHands: true, required: [LM.nose, LM.leye, LM.reye, LM.lear, LM.rear, LM.ls, LM.rs], focus: [LM.nose, LM.lear, LM.rear] }
+  { id: "touchHead", en: "Touch your head with one hand!", ko: "한 손을 머리 꼭대기에 얹어요", emoji: "🧢", oneHand: true, required: FACE_CORE, focus: [LM.nose, LM.leye, LM.reye, LM.lw, LM.rw] },
+  { id: "touchFace", en: "Touch your face with one hand!", ko: "한 손으로 얼굴을 짚어요", emoji: "😊", oneHand: true, required: FACE_CORE, focus: [LM.nose, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "touchNose", en: "Touch your nose with one hand!", ko: "한 손으로 코를 짚어요", emoji: "👃", oneHand: true, required: MOUTH_CORE, focus: [LM.nose, LM.lw, LM.rw] },
+  { id: "touchMouth", en: "Touch your mouth with one hand!", ko: "한 손을 입에 대요", emoji: "🤫", oneHand: true, required: MOUTH_CORE, focus: [LM.lmouth, LM.rmouth, LM.lw, LM.rw] },
+  { id: "touchEyes", en: "Cover both eyes with your hands!", ko: "두 손으로 양쪽 눈을 가려요", emoji: "🙈", required: MOUTH_CORE, focus: [LM.leye, LM.reye, LM.lw, LM.rw] },
+  { id: "touchEars", en: "Touch both ears with your hands!", ko: "두 손으로 양쪽 귀를 잡아요", emoji: "👂", required: MOUTH_CORE, focus: [LM.lear, LM.rear, LM.lw, LM.rw] },
+  { id: "tiltHead", en: "Tilt your head to the side!", ko: "어깨는 그대로 두고 고개만 옆으로 갸웃 기울여요", emoji: "🙃", noHands: true, required: [LM.nose, LM.leye, LM.reye, LM.lear, LM.rear, LM.ls, LM.rs], focus: [LM.nose, LM.lear, LM.rear] }
 ];
 
 const games = {
@@ -1798,25 +1800,64 @@ function faceMetrics(points) {
   };
 }
 
-// 얼굴 부위 짚기 판정. 거리만 보면 코를 짚어도 입으로 오인되므로,
-// 목표 부위가 다른 어떤 부위보다 가까울 때만 인정한다.
+// 얼굴 부위 짚기 판정.
+//
+// 손 위치는 손목에서 추정한 값이라 오차가 크다(손가락 끝을 알 수 없다). 반면 코와 입은
+// 얼굴 단위로 0.5칸밖에 안 떨어져 있다. 즉 픽셀 거리로 코/입/볼을 정밀하게 가르려 하면
+// 아이가 아무리 정확히 짚어도 몇 픽셀 차이로 탈락한다(실제로 그렇게 만들었다가 되돌림).
+//
+// 그래서 "가장 가까운 부위 찾기"를 버리고, 넉넉한 반경 + 굵은 구분만 쓴다:
+//   위/아래(눈-코-입) · 가운데/양옆(코-귀). 이 둘은 오차보다 충분히 크다.
+// 유아용 언어 놀이라 조금 헐거워도 아이가 영어를 듣고 몸을 움직이면 목적을 달성한다.
 function faceAnchorMap(points, face) {
   return {
     headTop: face.headTop, leye: points.leye, reye: points.reye, nose: points.nose,
-    mouth: face.mouth, chin: face.chin, lear: points.lear, rear: points.rear,
-    lcheek: face.lcheek, rcheek: face.rcheek
+    mouth: face.mouth, lear: points.lear, rear: points.rear
   };
 }
 
-function facePartTouch(hand, part, points, face, reachUnits = 1.05) {
-  if (!hand) return false;
-  const anchors = faceAnchorMap(points, face);
-  const target = anchors[part];
-  if (!target) return false;
-  const targetDistance = distance(hand, target);
-  if (targetDistance > face.unit * reachUnits) return false;
-  return Object.entries(anchors).every(([name, point]) =>
-    name === part || !point || distance(hand, point) > targetDistance);
+// 얼굴 한가운데(눈과 입 사이). 얼굴 전체 판정의 기준점이다.
+function faceCenter(points, face) {
+  return { x: points.nose.x, y: (face.eyes.y + face.mouth.y) / 2 };
+}
+
+// 손이 얼굴 위에 있는가(부위를 가리지 않음).
+function handOnFace(hand, points, face) {
+  return !!hand && distance(hand, faceCenter(points, face)) < face.unit * 1.75;
+}
+
+// 손이 코 근처에 있는가 — 얼굴 가운데 세로줄, 눈부터 입 아래까지.
+// 세로 범위가 넓어서 입을 짚어도 통과된다. 의도한 것이다: 코와 입은 얼굴 단위로 0.66칸
+// (실제 약 15px)밖에 안 떨어져서, 둘을 정말 가르려면 허용 오차가 그보다 작아야 하는데
+// 그러면 아이가 제대로 짚어도 탈락한다. 인식률을 택했다. 좌우(코-귀)는 충분히 멀어서 가른다.
+function touchingNose(hand, points, face) {
+  return !!hand
+    && Math.abs(hand.x - points.nose.x) < face.unit * .95
+    && hand.y > face.eyes.y - face.unit * .40
+    && hand.y < face.mouth.y + face.unit * .30;
+}
+
+// 손이 입 근처에 있는가 — 얼굴 가운데 세로줄, 코 아래부터 턱까지. 턱을 받쳐도 인정한다.
+function touchingMouth(hand, points, face) {
+  return !!hand
+    && Math.abs(hand.x - face.mouth.x) < face.unit * .95
+    && hand.y > points.nose.y
+    && hand.y < face.chin.y + face.unit * .55;
+}
+
+// 손이 같은 쪽 눈 근처(얼굴 위쪽)에 있는가.
+function touchingEye(hand, eye, points, face) {
+  return !!hand && !!eye
+    && distance(hand, eye) < face.unit * 1.5
+    && hand.y < points.nose.y + face.unit * .30;
+}
+
+// 손이 같은 쪽 귀 근처에 있는가. 귀는 얼굴 가장자리라 "코보다 귀 쪽인가"로 갈린다.
+// 1.25배를 준 건 딱 중간선으로 자르면 귀를 제대로 잡아도 안쪽으로 8px만 밀리면 탈락해서다.
+function touchingEar(hand, ear, points, face) {
+  return !!hand && !!ear && (ear.v ?? 1) >= .30
+    && distance(hand, ear) < face.unit * 1.6
+    && distance(hand, ear) < distance(hand, points.nose) * 1.25;
 }
 
 // 자세를 잡는 순간 넘어가되, 한 프레임 튐으로 오인정되지 않을 만큼만 붙잡아 둔다.
@@ -1862,10 +1903,7 @@ function staticActionMatches(action, points, metric, state) {
     // 팔이 몸통과 이루는 각(armAngle)은 보지 않는다 — 거리만으로 이미 만세가 걸러지는데,
     // 어깨가 좁은 아이가 같은 쪽 볼을 짚으면 팔이 거의 수직이 되어 잘못 탈락한다.
     const face = faceMetrics(points);
-    const center = { x: points.nose.x, y: (face.eyes.y + face.mouth.y) / 2 };
-    const touchesFace = (hand, elbowAngle) => hand
-      && distance(hand, center) < face.unit * 1.75
-      && elbowAngle < 148;
+    const touchesFace = (hand, elbowAngle) => handOnFace(hand, points, face) && elbowAngle < 155;
     const leftTracked = [LM.le, LM.lw].every((index) => landmarkInFrame(lastPose?.[index], .008));
     const rightTracked = [LM.re, LM.rw].every((index) => landmarkInFrame(lastPose?.[index], .008));
     return (leftTracked && touchesFace(handPoint(LM.lw) || points.lw, metric.leftElbow))
@@ -1874,68 +1912,45 @@ function staticActionMatches(action, points, metric, state) {
   if (action.id === "touchHead") {
     // 손이 정수리 위로 올라가 머리에 얹혀야 한다. 얼굴을 짚는 건 인정하지 않는다.
     const face = faceMetrics(points);
-    const onHead = (hand, wrist, elbowAngle) => hand
-      && hand.y < face.headTop.y + face.unit * .60
+    // 손목이 코보다 위여야 한다는 조건은 뺐다 — 손을 머리에 얹으면 손목은 귀 높이쯤에
+    // 오는데, 손바닥이 추정값이라 4px만 어긋나도 탈락했다. 아래 세 조건으로 충분하다.
+    const onHead = (hand, elbowAngle) => hand
+      && hand.y < face.headTop.y + face.unit * .90
       && Math.abs(hand.x - face.headTop.x) < metric.shoulderWidth * .46
       // 머리 위로 손을 든 것(만세)과 머리에 얹은 것을 가른다.
-      && distance(hand, face.headTop) < face.unit * 1.10
-      && elbowAngle < 155
-      && wrist.y < points.nose.y;
+      && distance(hand, face.headTop) < face.unit * 1.30
+      && elbowAngle < 155;
     const leftTracked = [LM.le, LM.lw].every((index) => landmarkInFrame(lastPose?.[index], .008));
     const rightTracked = [LM.re, LM.rw].every((index) => landmarkInFrame(lastPose?.[index], .008));
-    return (leftTracked && onHead(handPoint(LM.lw) || points.lw, points.lw, metric.leftElbow))
-      || (rightTracked && onHead(handPoint(LM.rw) || points.rw, points.rw, metric.rightElbow));
+    return (leftTracked && onHead(handPoint(LM.lw) || points.lw, metric.leftElbow))
+      || (rightTracked && onHead(handPoint(LM.rw) || points.rw, metric.rightElbow));
   }
   if (action.id === "touchEars") {
-    // 두 손이 각각 같은 쪽 귀에 있어야 한다. 볼·코를 짚은 손은 인정하지 않는다.
+    // 두 손이 각각 같은 쪽 귀에 있어야 한다.
     const face = faceMetrics(points);
-    return facePartTouch(handPoint(LM.lw) || points.lw, "lear", points, face, 1.30)
-      && facePartTouch(handPoint(LM.rw) || points.rw, "rear", points, face, 1.30)
-      && metric.leftElbow < 145 && metric.rightElbow < 145
-      && points.lw.y < metric.shoulderMid.y + metric.torso * .14
-      && points.rw.y < metric.shoulderMid.y + metric.torso * .14;
+    return touchingEar(handPoint(LM.lw) || points.lw, points.lear, points, face)
+      && touchingEar(handPoint(LM.rw) || points.rw, points.rear, points, face)
+      && metric.leftElbow < 150 && metric.rightElbow < 150;
   }
   if (action.id === "touchNose") {
-    // 한 손끝이 코에 닿고, 반대 손은 얼굴에서 떨어져 있어야 한다.
+    // 한 손이 코에 닿고, 반대 손은 얼굴에 없어야 한다(두 손 다 얼굴이면 다른 미션이다).
     const face = faceMetrics(points);
-    const awayFromFace = (wrist) => wrist.y > metric.shoulderMid.y;
-    const leftTouches = facePartTouch(handPoint(LM.lw) || points.lw, "nose", points, face)
-      && metric.leftElbow < 150 && awayFromFace(points.rw);
-    const rightTouches = facePartTouch(handPoint(LM.rw) || points.rw, "nose", points, face)
-      && metric.rightElbow < 150 && awayFromFace(points.lw);
-    return leftTouches || rightTouches;
+    const left = handPoint(LM.lw) || points.lw, right = handPoint(LM.rw) || points.rw;
+    return (touchingNose(left, points, face) && metric.leftElbow < 155 && !handOnFace(right, points, face))
+      || (touchingNose(right, points, face) && metric.rightElbow < 155 && !handOnFace(left, points, face));
   }
   if (action.id === "touchMouth") {
-    // 한 손이 입에 닿고, 반대 손은 얼굴에서 떨어져 있어야 한다.
     const face = faceMetrics(points);
-    const awayFromFace = (wrist) => wrist.y > metric.shoulderMid.y;
-    return (facePartTouch(handPoint(LM.lw) || points.lw, "mouth", points, face)
-        && metric.leftElbow < 150 && awayFromFace(points.rw))
-      || (facePartTouch(handPoint(LM.rw) || points.rw, "mouth", points, face)
-        && metric.rightElbow < 150 && awayFromFace(points.lw));
-  }
-  if (action.id === "touchChin") {
-    // 한 손이 턱(입 아래)을 받쳐야 한다.
-    const face = faceMetrics(points);
-    const awayFromFace = (wrist) => wrist.y > metric.shoulderMid.y;
-    return (facePartTouch(handPoint(LM.lw) || points.lw, "chin", points, face)
-        && metric.leftElbow < 150 && awayFromFace(points.rw))
-      || (facePartTouch(handPoint(LM.rw) || points.rw, "chin", points, face)
-        && metric.rightElbow < 150 && awayFromFace(points.lw));
+    const left = handPoint(LM.lw) || points.lw, right = handPoint(LM.rw) || points.rw;
+    return (touchingMouth(left, points, face) && metric.leftElbow < 155 && !handOnFace(right, points, face))
+      || (touchingMouth(right, points, face) && metric.rightElbow < 155 && !handOnFace(left, points, face));
   }
   if (action.id === "touchEyes") {
     // 두 손이 각각 같은 쪽 눈을 가려야 한다.
     const face = faceMetrics(points);
-    return facePartTouch(handPoint(LM.lw) || points.lw, "leye", points, face, 1.15)
-      && facePartTouch(handPoint(LM.rw) || points.rw, "reye", points, face, 1.15)
-      && metric.leftElbow < 150 && metric.rightElbow < 150;
-  }
-  if (action.id === "touchCheeks") {
-    // 두 손이 각각 같은 쪽 볼(귀와 입 사이)에 닿아야 한다.
-    const face = faceMetrics(points);
-    return facePartTouch(handPoint(LM.lw) || points.lw, "lcheek", points, face, 1.15)
-      && facePartTouch(handPoint(LM.rw) || points.rw, "rcheek", points, face, 1.15)
-      && metric.leftElbow < 150 && metric.rightElbow < 150;
+    return touchingEye(handPoint(LM.lw) || points.lw, points.leye, points, face)
+      && touchingEye(handPoint(LM.rw) || points.rw, points.reye, points, face)
+      && metric.leftElbow < 155 && metric.rightElbow < 155;
   }
   if (action.id === "tiltHead") {
     // 어깨는 수평인데 두 귀 높이가 눈에 띄게 달라야 고개를 기울인 것이다.
@@ -2021,6 +2036,23 @@ function staticActionMatches(action, points, metric, state) {
       && metric.leftElbow < 138 && metric.rightElbow < 138
       && elbowGap > metric.shoulderWidth * 1.38
       && Math.abs(wristMidY - metric.hipMid.y) < metric.torso * .36;
+  }
+  if (action.id === "touchElbow") {
+    // 한 손으로 반대쪽 팔꿈치를 잡는다.
+    const grabs = (hand, otherElbow, elbowAngle) => hand
+      && distance(hand, otherElbow) < metric.shoulderWidth * .42
+      && elbowAngle < 155;
+    return grabs(handPoint(LM.lw) || points.lw, points.re, metric.leftElbow)
+      || grabs(handPoint(LM.rw) || points.rw, points.le, metric.rightElbow);
+  }
+  if (action.id === "crossArmsHigh") {
+    // 머리 위에서 두 팔을 X자로 겹친다(가슴 앞 X자·머리 위 손뼉과 구분된다).
+    const crossed = (points.lw.x - points.rw.x) * (points.ls.x - points.rs.x) < 0;
+    const wristMidY = (points.lw.y + points.rw.y) / 2;
+    return crossed
+      && wristMidY < points.nose.y
+      && metric.wristGap > metric.shoulderWidth * .35
+      && metric.leftElbow > 95 && metric.rightElbow > 95;
   }
   if (action.id === "crossArms") {
     // 두 손목이 가슴 앞에서 서로 반대쪽으로 넘어가야 X자다.
@@ -3142,10 +3174,6 @@ function syntheticPose(preset) {
     set(LM.le,.36,.28);set(LM.re,.64,.28);set(LM.lw,.4362,.1484);set(LM.rw,.5638,.1484);
   } else if (preset === "touchMouth") {
     set(LM.le,.37,.30);set(LM.lw,.4606,.1738);
-  } else if (preset === "touchCheeks") {
-    set(LM.le,.38,.28);set(LM.re,.62,.28);set(LM.lw,.4303,.1708);set(LM.rw,.5697,.1708);
-  } else if (preset === "touchChin") {
-    set(LM.le,.38,.30);set(LM.lw,.4596,.1934);
   } else if (preset === "tiltHead") {
     // 고개만 갸웃 — 어깨는 그대로 두고 눈·귀 높이만 어긋나게 한다.
     set(LM.leye,.47,.082);set(LM.reye,.53,.098);set(LM.lear,.44,.086);set(LM.rear,.56,.114);
@@ -3163,6 +3191,11 @@ function syntheticPose(preset) {
     set(LM.le,.38,.42);set(LM.re,.62,.42);set(LM.lw,.48,.47);set(LM.rw,.52,.47);
   } else if (preset === "reachSide") {
     set(LM.le,.31,.27);set(LM.lw,.20,.28);
+  } else if (preset === "touchElbow") {
+    // 왼손으로 오른쪽 팔꿈치를 잡는다(오른팔은 굽혀 앞으로).
+    set(LM.re,.68,.40);set(LM.rw,.56,.33);set(LM.le,.40,.46);set(LM.lw,.614,.4141);
+  } else if (preset === "crossArmsHigh") {
+    set(LM.le,.36,.20);set(LM.re,.64,.20);set(LM.lw,.56,.08);set(LM.rw,.44,.08);
   } else if (preset === "crossArms") {
     set(LM.le,.33,.40);set(LM.re,.67,.40);set(LM.lw,.60,.40);set(LM.rw,.40,.40);
   } else if (preset === "handsOnHips") {
@@ -3354,15 +3387,13 @@ function runEngineSelfTest() {
     clapAsCross: actionMatch("crossArms", "clap"),
     clapAsTummy: actionMatch("touchTummy", "clap"),
     airplaneAsReachSide: actionMatch("reachSide", "airplane"),
-    // 얼굴 부위끼리 서로 오인되면 안 된다 — 이게 무너지면 아이가 영어 단어를 잘못 배운다.
+    crossArmsAsHigh: actionMatch("crossArmsHigh", "crossArms"),
+    highCrossAsLow: actionMatch("crossArms", "crossArmsHigh"),
+    // 얼굴은 좌우(코-귀)와 위아래(눈-입)만 가른다. 이 둘은 손 위치 오차보다 충분히 멀다.
+    // 코-입은 일부러 안 가른다(위 touchingNose 주석 참고) — 가르려다 인식률을 죽였던 적 있다.
     earsAsNose: actionMatch("touchNose", "touchEars"),
-    noseAsMouth: actionMatch("touchMouth", "touchNose"),
-    mouthAsNose: actionMatch("touchNose", "touchMouth"),
-    mouthAsChin: actionMatch("touchChin", "touchMouth"),
-    chinAsMouth: actionMatch("touchMouth", "touchChin"),
-    earsAsCheeks: actionMatch("touchCheeks", "touchEars"),
-    cheeksAsEars: actionMatch("touchEars", "touchCheeks"),
-    eyesAsCheeks: actionMatch("touchCheeks", "touchEyes"),
+    noseAsEars: actionMatch("touchEars", "touchNose"),
+    eyesAsMouth: actionMatch("touchMouth", "touchEyes"),
     faceAsHead: actionMatch("touchHead", "touchFace")
   };
   // 모든 미션이 자기 프리셋에서는 인식되어야 한다.
@@ -3405,6 +3436,10 @@ function runEngineSelfTest() {
   };
 
   usedActionOrder = [];usedActionSet = new Set();
+  // 합성 자세를 먹이는 검사는 전부 픽스처 기준 카메라 영역에서 돌려야 한다(위 설명 참고).
+  const savedRunRect = cameraRect, savedRunPlay = playRect;
+  cameraRect = { x: 8, y: 121.5556, w: 374, h: 664.8889 };
+  playRect = cameraRect;
   selectedGame = "squat";resetScore();gameState=createGameState("squat");const actionOrder=[];
   const deckSize = gameState.commands.length;
   while (!gameState.sessionComplete && actionOrder.length <= deckSize) {
@@ -3416,6 +3451,7 @@ function runEngineSelfTest() {
     if (action.armed) feedSyntheticPose("airplane", 6);
     feedSyntheticPose(action.id, 16);
   }
+  cameraRect = savedRunRect;playRect = savedRunPlay;
   results.squat = {
     pass: deckSize === ACTION_ROUND_MISSIONS && gameState.completed === deckSize
       && gameState.sessionComplete && completedRun && new Set(actionOrder).size === deckSize,
