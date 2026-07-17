@@ -24,14 +24,14 @@ const MODEL_LITE = "https://storage.googleapis.com/mediapipe-models/pose_landmar
 const MODEL_FULL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
 // lear/rear·leye/reye는 얼굴 동작(귀·코 잡기) 판정에 쓴다.
 const LM = {
-  nose: 0, leye: 2, reye: 5, lear: 7, rear: 8,
+  nose: 0, leye: 2, reye: 5, lear: 7, rear: 8, lmouth: 9, rmouth: 10,
   ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16, lp: 17, rp: 18, li: 19, ri: 20,
   lh: 23, rh: 24, lk: 25, rk: 26, la: 27, ra: 28
 };
 const SKELETON = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24]];
 const POSE_JOINTS = [LM.nose, LM.lear, LM.rear, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh];
 const ARM_JOINTS = new Set([LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw]);
-const FACE_JOINTS = new Set([LM.nose, LM.leye, LM.reye, LM.lear, LM.rear]);
+const FACE_JOINTS = new Set([LM.nose, LM.leye, LM.reye, LM.lear, LM.rear, LM.lmouth, LM.rmouth]);
 const MAJOR_JOINTS = new Set([LM.ls, LM.rs, LM.lh, LM.rh]);
 const POSE_INFERENCE_INTERVAL = 55;
 const POSE_FRESH_MS = 280;
@@ -86,6 +86,20 @@ const WORDS = [
   { word: "CAMEL", emoji: "🐫", ko: "낙타" },
   { word: "EAGLE", emoji: "🦅", ko: "독수리" },
   { word: "SPIDER", emoji: "🕷️", ko: "거미" },
+  { word: "PARROT", emoji: "🦜", ko: "앵무새" },
+  { word: "SWAN", emoji: "🦢", ko: "백조" },
+  { word: "LLAMA", emoji: "🦙", ko: "라마" },
+  { word: "SLOTH", emoji: "🦥", ko: "나무늘보" },
+  { word: "OTTER", emoji: "🦦", ko: "수달" },
+  { word: "LIZARD", emoji: "🦎", ko: "도마뱀" },
+  { word: "WORM", emoji: "🪱", ko: "지렁이" },
+  { word: "BUG", emoji: "🐛", ko: "애벌레" },
+  { word: "SHRIMP", emoji: "🦐", ko: "새우" },
+  { word: "RHINO", emoji: "🦏", ko: "코뿔소" },
+  { word: "HEN", emoji: "🐔", ko: "닭" },
+  { word: "DOVE", emoji: "🕊️", ko: "비둘기" },
+  { word: "BEAVER", emoji: "🦫", ko: "비버" },
+  { word: "SKUNK", emoji: "🦨", ko: "스컹크" },
   // 음식
   { word: "MILK", emoji: "🥛", ko: "우유" },
   { word: "CAKE", emoji: "🍰", ko: "케이크" },
@@ -112,6 +126,25 @@ const WORDS = [
   { word: "ONION", emoji: "🧅", ko: "양파" },
   { word: "POTATO", emoji: "🥔", ko: "감자" },
   { word: "BURGER", emoji: "🍔", ko: "햄버거" },
+  { word: "CHERRY", emoji: "🍒", ko: "체리" },
+  { word: "KIWI", emoji: "🥝", ko: "키위" },
+  { word: "MANGO", emoji: "🥭", ko: "망고" },
+  { word: "OLIVE", emoji: "🫒", ko: "올리브" },
+  { word: "PEANUT", emoji: "🥜", ko: "땅콩" },
+  { word: "SALAD", emoji: "🥗", ko: "샐러드" },
+  { word: "TACO", emoji: "🌮", ko: "타코" },
+  { word: "SUSHI", emoji: "🍣", ko: "초밥" },
+  { word: "NOODLE", emoji: "🍜", ko: "국수" },
+  { word: "PIE", emoji: "🥧", ko: "파이" },
+  { word: "TEA", emoji: "🍵", ko: "차" },
+  { word: "ICE", emoji: "🧊", ko: "얼음" },
+  { word: "BACON", emoji: "🥓", ko: "베이컨" },
+  { word: "GARLIC", emoji: "🧄", ko: "마늘" },
+  { word: "WAFFLE", emoji: "🧇", ko: "와플" },
+  { word: "BUTTER", emoji: "🧈", ko: "버터" },
+  { word: "SALT", emoji: "🧂", ko: "소금" },
+  { word: "HOTDOG", emoji: "🌭", ko: "핫도그" },
+  { word: "FRIES", emoji: "🍟", ko: "감자튀김" },
   // 사물·자연
   { word: "SUN", emoji: "☀️", ko: "해" },
   { word: "STAR", emoji: "⭐", ko: "별" },
@@ -159,12 +192,55 @@ const WORDS = [
   { word: "PENCIL", emoji: "✏️", ko: "연필" },
   { word: "WATER", emoji: "💧", ko: "물" },
   { word: "HEART", emoji: "❤️", ko: "하트" },
+  { word: "LAMP", emoji: "💡", ko: "전등" },
+  { word: "CUP", emoji: "🥤", ko: "컵" },
+  { word: "FORK", emoji: "🍴", ko: "포크" },
+  { word: "PLATE", emoji: "🍽️", ko: "접시" },
+  { word: "PAINT", emoji: "🎨", ko: "물감" },
+  { word: "RULER", emoji: "📏", ko: "자" },
+  { word: "PHONE", emoji: "📱", ko: "휴대폰" },
+  { word: "CAMERA", emoji: "📷", ko: "카메라" },
+  { word: "GUITAR", emoji: "🎸", ko: "기타" },
+  { word: "VIOLIN", emoji: "🎻", ko: "바이올린" },
+  { word: "BIKE", emoji: "🚲", ko: "자전거" },
+  { word: "TRUCK", emoji: "🚚", ko: "트럭" },
+  { word: "ROCKET", emoji: "🚀", ko: "로켓" },
+  { word: "CASTLE", emoji: "🏰", ko: "성" },
+  { word: "SCHOOL", emoji: "🏫", ko: "학교" },
+  { word: "TOWER", emoji: "🗼", ko: "탑" },
+  { word: "MAP", emoji: "🗺️", ko: "지도" },
+  { word: "BOX", emoji: "📦", ko: "상자" },
+  { word: "MONEY", emoji: "💰", ko: "돈" },
+  { word: "COIN", emoji: "🪙", ko: "동전" },
+  { word: "BROOM", emoji: "🧹", ko: "빗자루" },
+  { word: "SOAP", emoji: "🧼", ko: "비누" },
+  { word: "MIRROR", emoji: "🪞", ko: "거울" },
+  { word: "WINDOW", emoji: "🪟", ko: "창문" },
+  { word: "LADDER", emoji: "🪜", ko: "사다리" },
+  { word: "BUCKET", emoji: "🪣", ko: "양동이" },
+  { word: "HAMMER", emoji: "🔨", ko: "망치" },
+  { word: "PUZZLE", emoji: "🧩", ko: "퍼즐" },
+  { word: "TEDDY", emoji: "🧸", ko: "곰인형" },
+  { word: "MAGNET", emoji: "🧲", ko: "자석" },
+  { word: "SHELL", emoji: "🐚", ko: "조개껍데기" },
+  { word: "CACTUS", emoji: "🌵", ko: "선인장" },
+  { word: "TULIP", emoji: "🌷", ko: "튤립" },
+  { word: "MAPLE", emoji: "🍁", ko: "단풍잎" },
+  { word: "BEACH", emoji: "🏖️", ko: "해변" },
+  { word: "EARTH", emoji: "🌍", ko: "지구" },
   // 몸
   { word: "HAND", emoji: "✋", ko: "손" },
   { word: "FOOT", emoji: "🦶", ko: "발" },
   { word: "NOSE", emoji: "👃", ko: "코" },
   { word: "EAR", emoji: "👂", ko: "귀" },
-  { word: "MOUTH", emoji: "👄", ko: "입" }
+  { word: "MOUTH", emoji: "👄", ko: "입" },
+  { word: "ARM", emoji: "💪", ko: "팔" },
+  { word: "LEG", emoji: "🦵", ko: "다리" },
+  { word: "TOOTH", emoji: "🦷", ko: "이" },
+  { word: "TONGUE", emoji: "👅", ko: "혀" },
+  { word: "BONE", emoji: "🦴", ko: "뼈" },
+  { word: "BRAIN", emoji: "🧠", ko: "뇌" },
+  { word: "FACE", emoji: "😀", ko: "얼굴" }
 ];
 
 const COLORS = [
@@ -181,24 +257,50 @@ const COLORS = [
 ];
 
 // 전부 상체·얼굴 동작이다 — 무릎·발목은 화면에 없어도 된다.
+// 자세를 잡는 순간 넘어간다. 한두 프레임 튐만 걸러낼 만큼만 유지 시간을 둔다.
+const ACTION_HOLD_MS = 110;
+// 손뼉은 손이 맞닿는 순간이 짧아서 더 짧게 본다.
+const ACTION_CLAP_HOLD_MS = 60;
+const ACTION_ROUND_MISSIONS = 10;
+const USED_ACTIONS_KEY = "mallang-used-actions-v1";
+
 const UPPER_CORE = [LM.nose, LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw];
+const FACE_CORE = [...UPPER_CORE, LM.leye, LM.reye, LM.lear, LM.rear];
+const MOUTH_CORE = [...FACE_CORE, LM.lmouth, LM.rmouth];
+
+// 미션 은행. 한 판에 ACTION_ROUND_MISSIONS개를 무작위로 뽑아 무작위 순서로 낸다.
+// ko는 실제 판정 조건을 그대로 풀어 쓴다 — 설명과 인식이 다르면 아이가 헤맨다.
+// oneHand: 반대쪽 팔이 화면 밖이어도 진행. armed: 손을 벌렸다 모으는 "동작"이라 준비 단계가 필요.
 const ACTION_COMMANDS = [
-  { id: "handsUp", en: "Raise your hands!", ko: "두 팔을 하늘 높이 쭉 뻗어요", emoji: "🙌", hold: 320, required: UPPER_CORE, focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "raiseOneHand", en: "Raise one hand!", ko: "한 손만 번쩍 들어요 (반대 손은 아래로)", emoji: "🙋", hold: 320, required: UPPER_CORE, focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "touchHead", en: "Touch your head!", ko: "한 손을 올려 머리 위를 살짝 만져요", emoji: "👋", hold: 300, required: UPPER_CORE, focus: [LM.nose, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "touchEars", en: "Touch your ears!", ko: "두 손으로 양쪽 귀를 잡아요", emoji: "👂", hold: 300, required: [...UPPER_CORE, LM.lear, LM.rear], focus: [LM.lear, LM.rear, LM.lw, LM.rw] },
-  { id: "touchNose", en: "Touch your nose!", ko: "한 손 검지로 코를 콕 짚어요", emoji: "👃", hold: 300, required: UPPER_CORE, focus: [LM.nose, LM.lw, LM.rw] },
-  { id: "touchShoulders", en: "Touch your shoulders!", ko: "두 손으로 내 양쪽 어깨를 잡아요", emoji: "🤗", hold: 300, required: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "airplane", en: "Make an airplane!", ko: "두 팔을 어깨높이에서 옆으로 쭉 펴요", emoji: "✈️", hold: 340, required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "clap", en: "Clap your hands!", ko: "두 팔을 벌렸다가 가슴 앞에서 손뼉!", emoji: "👏", hold: 220, required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "crossArms", en: "Cross your arms!", ko: "두 팔을 가슴 앞에서 X자로 모아요", emoji: "🙅", hold: 340, required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw] },
-  { id: "handsOnHips", en: "Hands on your hips!", ko: "두 손을 허리 옆에 척 올려요", emoji: "🕺", hold: 320, required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh] }
+  // --- 팔·몸 ---
+  { id: "handsUp", en: "Raise your hands!", ko: "두 팔을 머리 위로 쭉 뻗어요", emoji: "🙌", required: UPPER_CORE, focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "raiseOneHand", en: "Raise one hand!", ko: "한 손만 번쩍 들어요 (반대 손은 아래로)", emoji: "🙋", oneHand: true, required: UPPER_CORE, focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "touchShoulders", en: "Touch your shoulders!", ko: "두 손으로 내 양쪽 어깨를 잡아요", emoji: "🤗", required: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "airplane", en: "Make an airplane!", ko: "두 팔을 어깨높이에서 옆으로 쭉 펴요", emoji: "✈️", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "reachSide", en: "Reach out to the side!", ko: "한 팔만 옆으로 쭉 펴요 (반대 손은 아래로)", emoji: "👉", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "clap", en: "Clap your hands!", ko: "손을 벌렸다가 가슴 앞에서 짝! 마주쳐요", emoji: "👏", armed: true, hold: ACTION_CLAP_HOLD_MS, required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "clapHigh", en: "Clap over your head!", ko: "손을 벌렸다가 머리 위에서 짝! 마주쳐요", emoji: "🎉", armed: true, hold: ACTION_CLAP_HOLD_MS, required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.nose, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "crossArms", en: "Cross your arms!", ko: "두 팔을 가슴 앞에서 X자로 겹쳐요", emoji: "🙅", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "handsOnHips", en: "Hands on your hips!", ko: "두 손을 허리 양옆에 올리고 팔꿈치를 벌려요", emoji: "🕺", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.le, LM.re, LM.lw, LM.rw, LM.lh, LM.rh] },
+  { id: "showMuscles", en: "Show your muscles!", ko: "팔꿈치를 옆으로 벌리고 굽혀서 알통을 만들어요", emoji: "💪", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.ls, LM.rs, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "touchTummy", en: "Touch your tummy!", ko: "두 손을 모아 배 위에 얹어요", emoji: "👐", required: [...UPPER_CORE, LM.lh, LM.rh], focus: [LM.lw, LM.rw, LM.lh, LM.rh] },
+
+  // --- 얼굴·머리 ---
+  { id: "touchHead", en: "Touch your head!", ko: "한 손을 머리 꼭대기에 얹어요", emoji: "🧢", oneHand: true, required: FACE_CORE, focus: [LM.nose, LM.leye, LM.reye, LM.lw, LM.rw] },
+  { id: "touchFace", en: "Touch your face!", ko: "한 손으로 얼굴을 짚어요", emoji: "😊", oneHand: true, required: UPPER_CORE, focus: [LM.nose, LM.le, LM.re, LM.lw, LM.rw] },
+  { id: "touchNose", en: "Touch your nose!", ko: "한 손 손끝으로 코를 콕 짚어요", emoji: "👃", oneHand: true, required: MOUTH_CORE, focus: [LM.nose, LM.lw, LM.rw] },
+  { id: "touchEyes", en: "Cover your eyes!", ko: "두 손으로 양쪽 눈을 가려요", emoji: "🙈", required: MOUTH_CORE, focus: [LM.leye, LM.reye, LM.lw, LM.rw] },
+  { id: "touchEars", en: "Touch your ears!", ko: "두 손으로 양쪽 귀를 잡아요", emoji: "👂", required: MOUTH_CORE, focus: [LM.lear, LM.rear, LM.lw, LM.rw] },
+  { id: "touchMouth", en: "Touch your mouth!", ko: "한 손을 입에 대요", emoji: "🤫", oneHand: true, required: MOUTH_CORE, focus: [LM.lmouth, LM.rmouth, LM.lw, LM.rw] },
+  { id: "touchCheeks", en: "Touch your cheeks!", ko: "두 손을 양쪽 볼에 대요", emoji: "😙", required: MOUTH_CORE, focus: [LM.lmouth, LM.rmouth, LM.lear, LM.rear, LM.lw, LM.rw] },
+  { id: "touchChin", en: "Touch your chin!", ko: "한 손으로 턱을 받쳐요", emoji: "🤔", oneHand: true, required: MOUTH_CORE, focus: [LM.lmouth, LM.rmouth, LM.lw, LM.rw] },
+  { id: "tiltHead", en: "Tilt your head!", ko: "어깨는 그대로 두고 고개만 옆으로 갸웃 기울여요", emoji: "🙃", noHands: true, required: [LM.nose, LM.leye, LM.reye, LM.lear, LM.rear, LM.ls, LM.rs], focus: [LM.nose, LM.lear, LM.rear] }
 ];
 
 const games = {
   sequence: { name: "SPELL POP · 10 WORDS", ms: 100000, image: "assets/kid-spell-pop-v1.webp", description: "한국어 그림 힌트를 보고 서로 다른 영어 단어 10개의 철자를 완성해요." },
   math: { name: "PICTURE PICK · 10 WORDS", ms: 90000, image: "assets/kid-picture-pick-v1.webp", description: "한국어 문제 10개를 듣고 알맞은 영어 단어를 손으로 골라요." },
-  squat: { name: "LISTEN & MOVE · 10 MISSIONS", ms: 130000, image: "assets/kid-action-missions-v2.webp", description: "서로 다른 영어 동작 10개를 듣고 상체와 얼굴로 따라 해요." },
+  squat: { name: "LISTEN & MOVE · 10 MISSIONS", ms: 130000, image: "assets/kid-action-missions-v2.webp", description: "동작 20가지 중 매판 10개를 새로 뽑아요. 영어를 듣고 상체와 얼굴로 따라 하면 바로 통과!" },
   color: { name: "COLOR POP · 10 COLORS", ms: 90000, image: "assets/kid-color-pop-v2.webp", description: "색깔 문제를 듣고 위쪽 좌·우 색 구름에서 정답을 빠르게 터치해요." }
 };
 
@@ -324,27 +426,51 @@ function currentPoseAge(now = performance.now()) {
   return Math.max(0, receivedAge, captureAge);
 }
 
-// 게임을 바꿔도 같은 단어가 바로 또 나오지 않도록, 사용한 단어를 세션·기기 단위로 기억한다.
+// 문제 은행. 낸 문제를 낸 순서대로 기기에 기억해 두고, 은행을 한 바퀴 다 돌기 전에는
+// 같은 문제가 다시 나오지 않게 한다. 게임을 바꿔도 단어 기록은 함께 쓴다.
+function loadUsedList(key) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(saved) ? saved.filter((item) => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistUsedList(key, list) {
+  if (selfTesting) return;
+  try { localStorage.setItem(key, JSON.stringify(list)); } catch {}
+}
+
+// 은행을 다 돌아 기록을 풀 때도, 최근에 낸 이만큼은 계속 잠가 둔다 — 방금 낸 문제가 바로 또 나오면 안 된다.
+const RECENT_WORD_LOCK = 40;
+const RECENT_ACTION_LOCK = 6;
+
 const USED_WORDS_KEY = "mallang-used-words-v1";
-const usedWordSet = new Set();
-try {
-  const saved = JSON.parse(localStorage.getItem(USED_WORDS_KEY) || "[]");
-  if (Array.isArray(saved)) saved.forEach((word) => usedWordSet.add(word));
-} catch {}
+let usedWordOrder = loadUsedList(USED_WORDS_KEY);
+let usedWordSet = new Set(usedWordOrder);
 
 function persistUsedWords() {
-  if (selfTesting) return;
-  try { localStorage.setItem(USED_WORDS_KEY, JSON.stringify([...usedWordSet])); } catch {}
+  persistUsedList(USED_WORDS_KEY, usedWordOrder);
+}
+
+// 은행이 바닥나면 오래전에 낸 문제부터 다시 풀어 주고, 최근 것만 잠가 둔다.
+function recycleUsed(order, keepRecent) {
+  const kept = order.slice(-keepRecent);
+  return { order: kept, set: new Set(kept) };
 }
 
 function buildWordDeck(maxLetters = Infinity) {
   const eligible = WORDS.filter((item) => item.word.length <= maxLetters);
   let fresh = eligible.filter((item) => !usedWordSet.has(item.word));
-  // 한 판(문제 10개 × 단어 2개)을 채울 만큼 안 남으면 사용 기록을 비우고 처음부터 다시 섞는다.
+  // 한 판(문제 10개 × 단어 2개)을 채울 만큼 안 남으면 오래된 기록부터 풀어 준다.
   if (fresh.length < PICTURE_GOAL * 2) {
-    eligible.forEach((item) => usedWordSet.delete(item.word));
+    const lock = Math.min(RECENT_WORD_LOCK, Math.max(0, eligible.length - PICTURE_GOAL * 3));
+    const recycled = recycleUsed(usedWordOrder, lock);
+    usedWordOrder = recycled.order;
+    usedWordSet = recycled.set;
     persistUsedWords();
-    fresh = eligible;
+    fresh = eligible.filter((item) => !usedWordSet.has(item.word));
   }
   return shuffle(fresh);
 }
@@ -353,6 +479,7 @@ function nextWord() {
   const word = wordDeck.shift() || null;
   if (word) {
     usedWordSet.add(word.word);
+    usedWordOrder.push(word.word);
     persistUsedWords();
   }
   return word;
@@ -1047,9 +1174,13 @@ function actionRequiredLandmarksUsable(action = gameState?.currentAction) {
       && landmark.x >= margin && landmark.x <= 1 - margin
       && landmark.y >= margin && landmark.y <= 1 - margin;
   };
+  // 손을 쓰지 않는 동작(고개 기울이기)은 팔이 화면 밖이어도 진행한다.
+  if (action.noHands) return action.required.every((index) => usable(index));
   // 한 손만 쓰는 동작은 반대쪽 팔이 화면 밖이어도 진행한다.
-  if (action.id === "touchHead" || action.id === "touchNose" || action.id === "raiseOneHand") {
-    const core = [LM.nose, LM.ls, LM.rs].every((index) => usable(index));
+  if (action.oneHand) {
+    const core = action.required
+      .filter((index) => !ARM_JOINTS.has(index) || index === LM.ls || index === LM.rs)
+      .every((index) => usable(index));
     const leftArm = [LM.le, LM.lw].every((index) => usable(index));
     const rightArm = [LM.re, LM.rw].every((index) => usable(index));
     return core && (leftArm || rightArm);
@@ -1590,9 +1721,32 @@ function exerciseFeedbackPoint(yRatio = .5) {
   return { x, y: cameraRect.y + cameraRect.h * yRatio };
 }
 
+let usedActionOrder = loadUsedList(USED_ACTIONS_KEY);
+let usedActionSet = new Set(usedActionOrder);
+
+// 미션 은행에서 한 판치를 무작위로 뽑는다. 은행을 한 바퀴 다 돌기 전에는 같은 미션이 다시 나오지 않는다.
+function buildActionDeck() {
+  let fresh = ACTION_COMMANDS.filter((action) => !usedActionSet.has(action.id));
+  if (fresh.length < ACTION_ROUND_MISSIONS) {
+    const lock = Math.min(RECENT_ACTION_LOCK, Math.max(0, ACTION_COMMANDS.length - ACTION_ROUND_MISSIONS));
+    const recycled = recycleUsed(usedActionOrder, lock);
+    usedActionOrder = recycled.order;
+    usedActionSet = recycled.set;
+    fresh = ACTION_COMMANDS.filter((action) => !usedActionSet.has(action.id));
+  }
+  // 뽑기와 순서를 한 번에 섞는다 — 매판 내용도 순서도 달라진다.
+  const picked = shuffle(fresh).slice(0, ACTION_ROUND_MISSIONS);
+  picked.forEach((action) => {
+    usedActionSet.add(action.id);
+    usedActionOrder.push(action.id);
+  });
+  persistUsedList(USED_ACTIONS_KEY, usedActionOrder);
+  return picked;
+}
+
 function createActionGame() {
   const state = {
-    mode: "squat", commands: ACTION_COMMANDS, commandIndex: 0, currentAction: null,
+    mode: "squat", commands: buildActionDeck(), commandIndex: 0, currentAction: null,
     completed: 0, reps: 0, stableMs: 0, neutralMs: 0, phase: "active",
     matching: false, progress: 0, advancing: false, sessionComplete: false,
     commandArmed: false
@@ -1610,9 +1764,64 @@ function activateActionCommand(state, index) {
   state.matching = false;
   state.progress = 0;
   state.advancing = false;
-  state.commandArmed = action?.id === "clap" && state.commands[index - 1]?.id === "airplane";
+  // 손뼉류는 손을 한 번 벌려야 준비된다. 나머지는 자세를 잡는 즉시 인정.
+  state.commandArmed = !action?.armed;
+  // 앞 동작을 그대로 유지하고 있으면 다음 미션이 저절로 통과된다.
+  // 명령이 바뀐 뒤 한 번이라도 자세가 풀린 걸 확인한 다음부터 인정한다.
+  // (이미 풀린 상태면 첫 프레임에 바로 해제되므로 평소엔 걸리는 느낌이 없다.)
+  state.needsRelease = true;
   state.phase = "active";
   state.introUntil = performance.now() + (selfTesting ? 0 : 680);
+}
+
+// 얼굴 부위 기준점. 눈↔입 세로 길이를 얼굴 단위(unit)로 삼아 정수리·볼·턱을 추정한다.
+// 얼굴 크기에 비례하므로 아이가 멀리 서든 가까이 오든 같은 기준이 된다.
+function faceMetrics(points) {
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const eyes = mid(points.leye, points.reye);
+  const mouthTracked = (points.lmouth?.v ?? 0) >= .30 && (points.rmouth?.v ?? 0) >= .30;
+  // 입이 안 잡히면 눈↔코 간격으로 입 위치를 추정한다(코는 눈과 입 사이 약 40% 지점).
+  const mouth = mouthTracked
+    ? mid(points.lmouth, points.rmouth)
+    : { x: points.nose.x, y: eyes.y + (points.nose.y - eyes.y) / .40 };
+  const unit = Math.max(6, Math.abs(mouth.y - eyes.y));
+  const lmouth = mouthTracked ? points.lmouth : mouth;
+  const rmouth = mouthTracked ? points.rmouth : mouth;
+  return {
+    eyes, mouth, unit, mouthTracked,
+    // 정수리는 눈 위로 얼굴 단위의 약 1.4배, 턱은 입 아래로 약 0.7배 지점.
+    headTop: { x: eyes.x, y: eyes.y - unit * 1.40 },
+    chin: { x: mouth.x, y: mouth.y + unit * .70 },
+    // 볼은 귀와 입 사이 중간.
+    lcheek: mid(points.lear, lmouth),
+    rcheek: mid(points.rear, rmouth)
+  };
+}
+
+// 얼굴 부위 짚기 판정. 거리만 보면 코를 짚어도 입으로 오인되므로,
+// 목표 부위가 다른 어떤 부위보다 가까울 때만 인정한다.
+function faceAnchorMap(points, face) {
+  return {
+    headTop: face.headTop, leye: points.leye, reye: points.reye, nose: points.nose,
+    mouth: face.mouth, chin: face.chin, lear: points.lear, rear: points.rear,
+    lcheek: face.lcheek, rcheek: face.rcheek
+  };
+}
+
+function facePartTouch(hand, part, points, face, reachUnits = 1.05) {
+  if (!hand) return false;
+  const anchors = faceAnchorMap(points, face);
+  const target = anchors[part];
+  if (!target) return false;
+  const targetDistance = distance(hand, target);
+  if (targetDistance > face.unit * reachUnits) return false;
+  return Object.entries(anchors).every(([name, point]) =>
+    name === part || !point || distance(hand, point) > targetDistance);
+}
+
+// 자세를 잡는 순간 넘어가되, 한 프레임 튐으로 오인정되지 않을 만큼만 붙잡아 둔다.
+function actionHold(action) {
+  return Math.max(1, action?.hold ?? ACTION_HOLD_MS);
 }
 
 function actionMetrics(points) {
@@ -1646,47 +1855,95 @@ function staticActionMatches(action, points, metric, state) {
     const rightUp = raised(points.rw, metric.rightElbow) && lowered(points.lw);
     return leftUp || rightUp;
   }
-  if (action.id === "touchHead") {
-    const touchesHead = (wrist, elbowAngle, armAngle) => {
-      const dx = (wrist.x - points.nose.x) / (metric.shoulderWidth * .72);
-      const dy = (wrist.y - (points.nose.y - metric.shoulderWidth * .05)) / (metric.shoulderWidth * .64);
-      return dx * dx + dy * dy < 1
-        && wrist.y > points.nose.y - metric.shoulderWidth * .12
-        && elbowAngle < 148 && armAngle > 42 && armAngle < 172;
-    };
+  if (action.id === "touchFace") {
+    // 손이 얼굴 어디든 닿으면 된다(부위를 가리지 않는 가장 쉬운 미션).
+    // 반경은 얼굴 크기(unit) 기준이다 — 어깨너비(가로 길이)로 세로 반경까지 재면
+    // 화면이 가로로 넓어질 때 판정 범위가 세로로 늘어나 머리 위 만세까지 통과된다.
+    // 팔이 몸통과 이루는 각(armAngle)은 보지 않는다 — 거리만으로 이미 만세가 걸러지는데,
+    // 어깨가 좁은 아이가 같은 쪽 볼을 짚으면 팔이 거의 수직이 되어 잘못 탈락한다.
+    const face = faceMetrics(points);
+    const center = { x: points.nose.x, y: (face.eyes.y + face.mouth.y) / 2 };
+    const touchesFace = (hand, elbowAngle) => hand
+      && distance(hand, center) < face.unit * 1.75
+      && elbowAngle < 148;
     const leftTracked = [LM.le, LM.lw].every((index) => landmarkInFrame(lastPose?.[index], .008));
     const rightTracked = [LM.re, LM.rw].every((index) => landmarkInFrame(lastPose?.[index], .008));
-    const leftTouches = leftTracked && touchesHead(points.lw, metric.leftElbow, metric.leftArm);
-    const rightTouches = rightTracked && touchesHead(points.rw, metric.rightElbow, metric.rightArm);
-    return leftTouches || rightTouches;
+    return (leftTracked && touchesFace(handPoint(LM.lw) || points.lw, metric.leftElbow))
+      || (rightTracked && touchesFace(handPoint(LM.rw) || points.rw, metric.rightElbow));
+  }
+  if (action.id === "touchHead") {
+    // 손이 정수리 위로 올라가 머리에 얹혀야 한다. 얼굴을 짚는 건 인정하지 않는다.
+    const face = faceMetrics(points);
+    const onHead = (hand, wrist, elbowAngle) => hand
+      && hand.y < face.headTop.y + face.unit * .60
+      && Math.abs(hand.x - face.headTop.x) < metric.shoulderWidth * .46
+      // 머리 위로 손을 든 것(만세)과 머리에 얹은 것을 가른다.
+      && distance(hand, face.headTop) < face.unit * 1.10
+      && elbowAngle < 155
+      && wrist.y < points.nose.y;
+    const leftTracked = [LM.le, LM.lw].every((index) => landmarkInFrame(lastPose?.[index], .008));
+    const rightTracked = [LM.re, LM.rw].every((index) => landmarkInFrame(lastPose?.[index], .008));
+    return (leftTracked && onHead(handPoint(LM.lw) || points.lw, points.lw, metric.leftElbow))
+      || (rightTracked && onHead(handPoint(LM.rw) || points.rw, points.rw, metric.rightElbow));
   }
   if (action.id === "touchEars") {
-    // 두 손이 각각 같은 쪽 귀에 있어야 한다. 코를 짚은 손은 인정하지 않는다.
-    const nearEar = (hand, ear) => ear && ear.v >= .30
-      && distance(hand, ear) < metric.shoulderWidth * .46
-      && distance(hand, ear) < distance(hand, points.nose);
-    return nearEar(handPoint(LM.lw) || points.lw, points.lear)
-      && nearEar(handPoint(LM.rw) || points.rw, points.rear)
+    // 두 손이 각각 같은 쪽 귀에 있어야 한다. 볼·코를 짚은 손은 인정하지 않는다.
+    const face = faceMetrics(points);
+    return facePartTouch(handPoint(LM.lw) || points.lw, "lear", points, face, 1.30)
+      && facePartTouch(handPoint(LM.rw) || points.rw, "rear", points, face, 1.30)
       && metric.leftElbow < 145 && metric.rightElbow < 145
       && points.lw.y < metric.shoulderMid.y + metric.torso * .14
       && points.rw.y < metric.shoulderMid.y + metric.torso * .14;
   }
   if (action.id === "touchNose") {
     // 한 손끝이 코에 닿고, 반대 손은 얼굴에서 떨어져 있어야 한다.
-    // 거리만 보면 귀를 잡아도 코로 오인되므로, 코가 양쪽 귀보다 가까운지도 확인한다.
-    const earDistance = (hand) => {
-      const ears = [points.lear, points.rear].filter((ear) => ear && ear.v >= .30);
-      return ears.length ? Math.min(...ears.map((ear) => distance(hand, ear))) : Infinity;
-    };
-    const nearNose = (hand) => hand
-      && distance(hand, points.nose) < metric.shoulderWidth * .30
-      && distance(hand, points.nose) < earDistance(hand);
+    const face = faceMetrics(points);
     const awayFromFace = (wrist) => wrist.y > metric.shoulderMid.y;
-    const leftHand = handPoint(LM.lw) || points.lw;
-    const rightHand = handPoint(LM.rw) || points.rw;
-    const leftTouches = nearNose(leftHand) && metric.leftElbow < 150 && awayFromFace(points.rw);
-    const rightTouches = nearNose(rightHand) && metric.rightElbow < 150 && awayFromFace(points.lw);
+    const leftTouches = facePartTouch(handPoint(LM.lw) || points.lw, "nose", points, face)
+      && metric.leftElbow < 150 && awayFromFace(points.rw);
+    const rightTouches = facePartTouch(handPoint(LM.rw) || points.rw, "nose", points, face)
+      && metric.rightElbow < 150 && awayFromFace(points.lw);
     return leftTouches || rightTouches;
+  }
+  if (action.id === "touchMouth") {
+    // 한 손이 입에 닿고, 반대 손은 얼굴에서 떨어져 있어야 한다.
+    const face = faceMetrics(points);
+    const awayFromFace = (wrist) => wrist.y > metric.shoulderMid.y;
+    return (facePartTouch(handPoint(LM.lw) || points.lw, "mouth", points, face)
+        && metric.leftElbow < 150 && awayFromFace(points.rw))
+      || (facePartTouch(handPoint(LM.rw) || points.rw, "mouth", points, face)
+        && metric.rightElbow < 150 && awayFromFace(points.lw));
+  }
+  if (action.id === "touchChin") {
+    // 한 손이 턱(입 아래)을 받쳐야 한다.
+    const face = faceMetrics(points);
+    const awayFromFace = (wrist) => wrist.y > metric.shoulderMid.y;
+    return (facePartTouch(handPoint(LM.lw) || points.lw, "chin", points, face)
+        && metric.leftElbow < 150 && awayFromFace(points.rw))
+      || (facePartTouch(handPoint(LM.rw) || points.rw, "chin", points, face)
+        && metric.rightElbow < 150 && awayFromFace(points.lw));
+  }
+  if (action.id === "touchEyes") {
+    // 두 손이 각각 같은 쪽 눈을 가려야 한다.
+    const face = faceMetrics(points);
+    return facePartTouch(handPoint(LM.lw) || points.lw, "leye", points, face, 1.15)
+      && facePartTouch(handPoint(LM.rw) || points.rw, "reye", points, face, 1.15)
+      && metric.leftElbow < 150 && metric.rightElbow < 150;
+  }
+  if (action.id === "touchCheeks") {
+    // 두 손이 각각 같은 쪽 볼(귀와 입 사이)에 닿아야 한다.
+    const face = faceMetrics(points);
+    return facePartTouch(handPoint(LM.lw) || points.lw, "lcheek", points, face, 1.15)
+      && facePartTouch(handPoint(LM.rw) || points.rw, "rcheek", points, face, 1.15)
+      && metric.leftElbow < 150 && metric.rightElbow < 150;
+  }
+  if (action.id === "tiltHead") {
+    // 어깨는 수평인데 두 귀 높이가 눈에 띄게 달라야 고개를 기울인 것이다.
+    const face = faceMetrics(points);
+    if (!points.lear || !points.rear || points.lear.v < .30 || points.rear.v < .30) return false;
+    const earDrop = Math.abs(points.lear.y - points.rear.y);
+    const shoulderTilt = Math.abs(points.ls.y - points.rs.y);
+    return earDrop > face.unit * .55 && shoulderTilt < metric.shoulderWidth * .18;
   }
   if (action.id === "touchShoulders") {
     const wristMidY = (points.lw.y + points.rw.y) / 2;
@@ -1704,13 +1961,57 @@ function staticActionMatches(action, points, metric, state) {
       && metric.wristGap > metric.shoulderWidth * 2.0;
   }
   if (action.id === "clap") {
-    if (metric.wristGap > metric.shoulderWidth * 1.20) state.commandArmed = true;
+    // 손을 벌렸다(준비) 가슴 앞에서 모아야 손뼉이다. 자연스러운 손뼉 폭이면 준비로 친다.
+    if (metric.wristGap > metric.shoulderWidth * .85) state.commandArmed = true;
     const wristMid = { x: (points.lw.x + points.rw.x) / 2, y: (points.lw.y + points.rw.y) / 2 };
-    return state.commandArmed && metric.wristGap < metric.shoulderWidth * .72
+    return state.commandArmed && metric.wristGap < metric.shoulderWidth * .48
       && Math.abs(wristMid.x - metric.shoulderMid.x) < metric.shoulderWidth * .48
-      && wristMid.y > metric.shoulderMid.y - metric.torso * .08
-      && wristMid.y < metric.hipMid.y - metric.torso * .04
+      // 가슴 높이 — 배나 얼굴 앞에서 친 건 인정하지 않는다.
+      && wristMid.y > metric.shoulderMid.y - metric.torso * .05
+      && wristMid.y < metric.shoulderMid.y + metric.torso * .50
       && metric.leftElbow > 38 && metric.leftElbow < 155 && metric.rightElbow > 38 && metric.rightElbow < 155;
+  }
+  if (action.id === "clapHigh") {
+    // 손을 벌렸다가 머리 위에서 모아야 한다.
+    if (metric.wristGap > metric.shoulderWidth * .85) state.commandArmed = true;
+    const wristMid = { x: (points.lw.x + points.rw.x) / 2, y: (points.lw.y + points.rw.y) / 2 };
+    return state.commandArmed && metric.wristGap < metric.shoulderWidth * .48
+      && Math.abs(wristMid.x - metric.shoulderMid.x) < metric.shoulderWidth * .55
+      && wristMid.y < points.nose.y
+      && metric.leftElbow > 60 && metric.rightElbow > 60;
+  }
+  if (action.id === "showMuscles") {
+    // 팔꿈치를 어깨 옆으로 벌리고 굽혀 주먹이 팔꿈치보다 위에 온다.
+    const elbowGap = distance(points.le, points.re);
+    return elbowGap > metric.shoulderWidth * 1.05
+      && points.lw.y < points.le.y - metric.torso * .18
+      && points.rw.y < points.re.y - metric.torso * .18
+      && metric.leftElbow > 30 && metric.leftElbow < 115
+      && metric.rightElbow > 30 && metric.rightElbow < 115
+      // 주먹이 머리 위로 올라가면 만세다.
+      && points.lw.y > points.nose.y && points.rw.y > points.nose.y
+      && points.le.y > metric.shoulderMid.y - metric.torso * .10;
+  }
+  if (action.id === "touchTummy") {
+    // 두 손을 모아 배(가슴보다 아래, 허리께)에 얹는다.
+    const wristMid = { x: (points.lw.x + points.rw.x) / 2, y: (points.lw.y + points.rw.y) / 2 };
+    const crossed = (points.lw.x - points.rw.x) * (points.ls.x - points.rs.x) < 0;
+    return !crossed
+      && metric.wristGap < metric.shoulderWidth * .95
+      && Math.abs(wristMid.x - metric.hipMid.x) < metric.shoulderWidth * .42
+      && wristMid.y > metric.shoulderMid.y + metric.torso * .58
+      && wristMid.y < metric.hipMid.y + metric.torso * .16
+      && metric.leftElbow < 145 && metric.rightElbow < 145;
+  }
+  if (action.id === "reachSide") {
+    // 한 팔만 어깨높이로 옆으로 뻗고 반대 손은 내린다(두 팔이면 비행기).
+    const reaching = (wrist, shoulder, armAngle, elbowAngle, otherWrist) =>
+      armAngle > 62 && armAngle < 118 && elbowAngle > 130
+      && Math.abs(wrist.y - shoulder.y) < metric.torso * .34
+      && Math.abs(wrist.x - metric.shoulderMid.x) > metric.shoulderWidth * .95
+      && otherWrist.y > metric.shoulderMid.y + metric.torso * .45;
+    return reaching(points.lw, points.ls, metric.leftArm, metric.leftElbow, points.rw)
+      || reaching(points.rw, points.rs, metric.rightArm, metric.rightElbow, points.lw);
   }
   if (action.id === "handsOnHips") {
     const elbowGap = distance(points.le, points.re);
@@ -1785,10 +2086,13 @@ function updateActionGame(dt) {
     return;
   }
   const metric = actionMetrics(points);
-  state.matching = staticActionMatches(action, points, metric, state);
+  const hold = actionHold(action);
+  const posed = staticActionMatches(action, points, metric, state);
+  if (!posed) state.needsRelease = false;
+  state.matching = posed && !state.needsRelease;
   state.stableMs = state.matching ? state.stableMs + dt : Math.max(0, state.stableMs - dt * 1.5);
-  state.progress = clamp(state.stableMs / action.hold, 0, 1);
-  if (state.stableMs >= action.hold) completeActionMission();
+  state.progress = clamp(state.stableMs / hold, 0, 1);
+  if (state.stableMs >= hold) completeActionMission();
   updateGameCue();
 }
 function updateGame(dt) {
@@ -2314,10 +2618,11 @@ function drawExerciseGame() {
   ctx.shadowBlur = 0;
   ctx.fillStyle = "#fff";
   ctx.font = "700 11px IBM Plex Sans KR";
-  ctx.fillText(`MISSIONS / ${ACTION_COMMANDS.length}`, x, y + 24);
+  const total = gameState?.commands?.length || ACTION_ROUND_MISSIONS;
+  ctx.fillText(`MISSIONS / ${total}`, x, y + 24);
   const gap = viewW < 700 ? 12 : 16;
-  const start = x - (ACTION_COMMANDS.length - 1) * gap / 2;
-  for (let i = 0; i < ACTION_COMMANDS.length; i++) {
+  const start = x - (total - 1) * gap / 2;
+  for (let i = 0; i < total; i++) {
     ctx.beginPath();
     ctx.arc(start + i * gap, y + 48, i === gameState.commandIndex ? 5 : 3.5, 0, Math.PI * 2);
     ctx.fillStyle = i < gameState.completed ? "#c8ff3d" : i === gameState.commandIndex ? "#ffb15b" : "#ffffff55";
@@ -2587,8 +2892,8 @@ function endGame() {
   } else if (selectedGame === "squat") {
     ui.resultMetricLabel.textContent = "완료한 동작";
     ui.resultStreakLabel.textContent = "미션 목표";
-    ui.accuracy.textContent = `${gameState?.completed || 0}/${ACTION_COMMANDS.length}`;
-    ui.maxCombo.textContent = `${ACTION_COMMANDS.length}개`;
+    ui.accuracy.textContent = `${gameState?.completed || 0}/${gameState?.commands?.length || ACTION_ROUND_MISSIONS}`;
+    ui.maxCombo.textContent = `${gameState?.commands?.length || ACTION_ROUND_MISSIONS}개`;
   } else {
     ui.resultMetricLabel.textContent = "도전 횟수";
     ui.resultStreakLabel.textContent = "최고 연속";
@@ -2813,7 +3118,9 @@ window.__MOTION_TEST__ = {
 function syntheticPose(preset) {
   const pose = Array.from({ length: 33 }, () => ({ x: .5, y: .5, z: 0, visibility: 1, presence: 1 }));
   const set = (index, x, y) => Object.assign(pose[index], { x, y });
+  // 얼굴은 실제 사람 비율에 맞춘다 — 눈↔입 간격이 얼굴 판정의 기준 단위라 대충 두면 테스트가 무의미해진다.
   set(LM.nose,.5,.10);set(LM.leye,.47,.09);set(LM.reye,.53,.09);set(LM.lear,.44,.10);set(LM.rear,.56,.10);
+  set(LM.lmouth,.477,.119);set(LM.rmouth,.523,.119);
   set(LM.ls,.42,.27);set(LM.rs,.58,.27);set(LM.le,.40,.40);set(LM.re,.60,.40);
   set(LM.lh,.45,.51);set(LM.rh,.55,.51);set(LM.lk,.45,.70);set(LM.rk,.55,.70);set(LM.la,.45,.91);set(LM.ra,.55,.91);
   set(LM.lw,.42,.56);set(LM.rw,.58,.56);
@@ -2821,18 +3128,41 @@ function syntheticPose(preset) {
     set(LM.le,.38,.17);set(LM.re,.62,.17);set(LM.lw,.40,.06);set(LM.rw,.60,.06);
   } else if (preset === "raiseOneHand") {
     set(LM.le,.38,.17);set(LM.lw,.40,.04);
+  } else if (preset === "touchFace") {
+    // 한 손을 볼에 얹은 자세(얼굴 어디든 닿으면 통과).
+    set(LM.le,.36,.29);set(LM.lw,.4262,.1687);
   } else if (preset === "touchHead") {
-    set(LM.le,.34,.20);set(LM.lw,.48,.11);
+    // 아래 얼굴 프리셋들의 손목 값은 손바닥(palm)이 목표 부위에 정확히 얹히도록 역산한 값이다.
+    set(LM.le,.36,.17);set(LM.lw,.4489,.0935);
   } else if (preset === "touchEars") {
-    set(LM.le,.44,.3875);set(LM.re,.56,.3875);set(LM.lw,.44,.1675);set(LM.rw,.56,.1675);
+    set(LM.le,.40,.34);set(LM.re,.60,.34);set(LM.lw,.4289,.1666);set(LM.rw,.5711,.1666);
   } else if (preset === "touchNose") {
-    set(LM.le,.371,.356);set(LM.lw,.470,.160);
+    set(LM.le,.37,.34);set(LM.lw,.4679,.1593);
+  } else if (preset === "touchEyes") {
+    set(LM.le,.36,.28);set(LM.re,.64,.28);set(LM.lw,.4362,.1484);set(LM.rw,.5638,.1484);
+  } else if (preset === "touchMouth") {
+    set(LM.le,.37,.30);set(LM.lw,.4606,.1738);
+  } else if (preset === "touchCheeks") {
+    set(LM.le,.38,.28);set(LM.re,.62,.28);set(LM.lw,.4303,.1708);set(LM.rw,.5697,.1708);
+  } else if (preset === "touchChin") {
+    set(LM.le,.38,.30);set(LM.lw,.4596,.1934);
+  } else if (preset === "tiltHead") {
+    // 고개만 갸웃 — 어깨는 그대로 두고 눈·귀 높이만 어긋나게 한다.
+    set(LM.leye,.47,.082);set(LM.reye,.53,.098);set(LM.lear,.44,.086);set(LM.rear,.56,.114);
   } else if (preset === "touchShoulders") {
     set(LM.le,.30,.36);set(LM.re,.70,.36);set(LM.lw,.40,.29);set(LM.rw,.60,.29);
   } else if (preset === "airplane") {
     set(LM.le,.31,.27);set(LM.re,.69,.27);set(LM.lw,.20,.28);set(LM.rw,.80,.28);
   } else if (preset === "clap") {
     set(LM.le,.35,.37);set(LM.re,.65,.37);set(LM.lw,.47,.38);set(LM.rw,.53,.38);
+  } else if (preset === "clapHigh") {
+    set(LM.le,.42,.16);set(LM.re,.58,.16);set(LM.lw,.485,.06);set(LM.rw,.515,.06);
+  } else if (preset === "showMuscles") {
+    set(LM.le,.32,.30);set(LM.re,.68,.30);set(LM.lw,.34,.20);set(LM.rw,.66,.20);
+  } else if (preset === "touchTummy") {
+    set(LM.le,.38,.42);set(LM.re,.62,.42);set(LM.lw,.48,.47);set(LM.rw,.52,.47);
+  } else if (preset === "reachSide") {
+    set(LM.le,.31,.27);set(LM.lw,.20,.28);
   } else if (preset === "crossArms") {
     set(LM.le,.33,.40);set(LM.re,.67,.40);set(LM.lw,.60,.40);set(LM.rw,.40,.40);
   } else if (preset === "handsOnHips") {
@@ -2895,16 +3225,33 @@ function runEngineSelfTest() {
   const mathStopsAtGoal = createMathProblem() === null;
   // 철자 게임에서 이미 쓴 단어는 다음 게임 덱에서 빠져야 한다(게임 간 중복 방지).
   const crossGameNoRepeat = pictureWords.every((word) => !spellingUsedWords.has(word));
+  // 철자 톡톡을 연달아 여러 판 해도 은행을 한 바퀴 돌기 전에는 같은 단어가 다시 나오면 안 된다.
+  usedWordOrder = [];usedWordSet = new Set();
+  selectedGame = "sequence";
+  const spellCycle = [];
+  const spellRounds = Math.floor(WORDS.length / SPELLING_GOAL) - 2;
+  for (let round = 0; round < spellRounds; round++) {
+    resetScore();
+    for (let i = 1; i <= SPELLING_GOAL; i++) {
+      const state = createSequenceRound(i);
+      if (state) spellCycle.push(state.prompt.word);
+    }
+  }
+  const spellCycleNoRepeat = spellCycle.length === spellRounds * SPELLING_GOAL
+    && new Set(spellCycle).size === spellCycle.length;
   results.noRepeat = {
-    pass: WORDS.length >= 100 && new Set(WORDS.map((item) => item.word)).size === WORDS.length
+    pass: WORDS.length >= 150 && new Set(WORDS.map((item) => item.word)).size === WORDS.length
+      // 한국어·이모지가 겹치면 아이가 문제를 구분할 수 없다(한국어는 음성으로도 읽힌다).
       && new Set(WORDS.map((item) => item.ko)).size === WORDS.length
+      && new Set(WORDS.map((item) => item.emoji)).size === WORDS.length
       && WORDS.every((item) => item.word.length >= 3 && item.word.length <= SPELLING_MAX_LETTERS)
       && sequenceWords.length === SPELLING_GOAL && new Set(sequenceWords).size === SPELLING_GOAL
       && sequenceStopsAtGoal
       && pictureWords.length === PICTURE_GOAL * 2 && new Set(pictureWords).size === PICTURE_GOAL * 2
       && pictureAnswers.length === PICTURE_GOAL && new Set(pictureAnswers).size === PICTURE_GOAL
-      && mathStopsAtGoal && crossGameNoRepeat,
-    wordCount: WORDS.length, spelling: sequenceWords, pictureAnswers, crossGameNoRepeat, mathStopsAtGoal
+      && mathStopsAtGoal && crossGameNoRepeat && spellCycleNoRepeat,
+    wordCount: WORDS.length, spelling: sequenceWords, pictureAnswers, crossGameNoRepeat, mathStopsAtGoal,
+    spellCycleRounds: spellRounds, spellCycleNoRepeat
   };
   selectedGame = "sequence";resetScore();gameState=createGameState("sequence");const spellWord=gameState.prompt.word;completeSequenceTarget(gameState.targets.find((target)=>target.order===1));
   results.sequence = { pass: gameState.current === 2 && hits === 1 && feedbacks.at(-1)?.type === "good" && WORDS.some((item)=>item.word===spellWord), word:spellWord, current: gameState.current, hits, feedback: feedbacks.at(-1)?.detail };
@@ -2954,11 +3301,21 @@ function runEngineSelfTest() {
     fingerOffset: Math.round(distance(fingerPalm, fingerWrist)),
     fallbackOffset: Math.round(distance(fallbackPalm, fallbackWrist))
   };
+  // syntheticPose의 좌표는 세로 카메라(720x1280)를 전제로 만든 값이다.
+  // 화면·카메라가 달라져도 updateCameraGeometry가 카메라 비율을 지키므로 실제 게임에서 몸의
+  // 픽셀 비율은 그대로다. 반면 픽스처를 다른 비율에 얹으면 몸만 찌그러진 가짜 자세가 되므로,
+  // 판정 검사 동안에는 카메라 영역을 픽스처 기준으로 고정한다(Node·브라우저 결과를 일치시킨다).
+  const savedRect = cameraRect, savedPlay = playRect;
+  cameraRect = { x: 8, y: 121.5556, w: 374, h: 664.8889 };
+  playRect = cameraRect;
   selectedGame = "squat";resetScore();gameState=createGameState("squat");
+  // 덱이 무작위라 판정 검사는 은행 전체를 덱으로 놓고 명령을 직접 지정한다.
+  gameState.commands = ACTION_COMMANDS;
   const noHeadroom = syntheticPose("stand");
   POSE_JOINTS.forEach((index) => noHeadroom[index].y -= .07);
   lastPose = noHeadroom;lastWorldPose = noHeadroom;poseTimestamp = performance.now();
   const headroomRejected = !analyzeFit().good;
+  activateActionCommand(gameState, ACTION_COMMANDS.findIndex((action) => action.id === "handsUp"));
   const offFrameHands = syntheticPose("handsUp");
   offFrameHands[LM.lw].y = offFrameHands[LM.rw].y = -.01;
   lastPose = offFrameHands;lastWorldPose = offFrameHands;poseTimestamp = performance.now();
@@ -2966,50 +3323,104 @@ function runEngineSelfTest() {
   const offFrameMetric = actionMetrics(offFramePoints);
   const offFramePoseUsable = poseUsable(poseTimestamp);
   const offFrameHandsMatch = staticActionMatches(gameState.currentAction, offFramePoints, offFrameMetric, gameState);
-  activateActionCommand(gameState, ACTION_COMMANDS.findIndex((action) => action.id === "touchHead"));
-  const overheadV = syntheticPose("jackOpen");
-  lastPose = overheadV;lastWorldPose = overheadV;poseTimestamp = performance.now();
-  const overheadVPoints = posePoints();
-  const overheadVTouchHeadMatch = staticActionMatches(gameState.currentAction, overheadVPoints, actionMetrics(overheadVPoints), gameState);
+  // 판정 검사에서는 은행 전체를 덱으로 놓고 id로 명령을 지정한다(실제 판에서는 10개만 뽑힌다).
   const actionMatch = (actionId, preset) => {
+    gameState.commands = ACTION_COMMANDS;
     activateActionCommand(gameState, ACTION_COMMANDS.findIndex((action) => action.id === actionId));
+    // 손뼉류는 손을 벌리는 준비 동작을 거쳐야 인정된다.
+    if (gameState.currentAction.armed) {
+      const spread = syntheticPose("airplane");
+      lastPose = spread;lastWorldPose = spread;poseTimestamp = performance.now();
+      const spreadPoints = posePoints();
+      staticActionMatches(gameState.currentAction, spreadPoints, actionMetrics(spreadPoints), gameState);
+    }
     lastPose = syntheticPose(preset);lastWorldPose = syntheticPose(preset);poseTimestamp = performance.now();
     const points = posePoints();
     return staticActionMatches(gameState.currentAction, points, actionMetrics(points), gameState);
   };
+  const overheadVTouchFaceMatch = actionMatch("touchFace", "jackOpen");
   const actionCrossMatches = {
     standAsShoulders: actionMatch("touchShoulders", "stand"),
     clapAsShoulders: actionMatch("touchShoulders", "clap"),
     standAsHips: actionMatch("handsOnHips", "stand"),
     standAsEars: actionMatch("touchEars", "stand"),
     standAsNose: actionMatch("touchNose", "stand"),
+    standAsTummy: actionMatch("touchTummy", "stand"),
+    standAsTilt: actionMatch("tiltHead", "stand"),
     handsUpAsRaiseOne: actionMatch("raiseOneHand", "handsUp"),
     handsUpAsEars: actionMatch("touchEars", "handsUp"),
+    // 만세는 손을 머리에 얹은 게 아니다.
+    handsUpAsHead: actionMatch("touchHead", "handsUp"),
     clapAsCross: actionMatch("crossArms", "clap"),
-    earsAsNose: actionMatch("touchNose", "touchEars")
+    clapAsTummy: actionMatch("touchTummy", "clap"),
+    airplaneAsReachSide: actionMatch("reachSide", "airplane"),
+    // 얼굴 부위끼리 서로 오인되면 안 된다 — 이게 무너지면 아이가 영어 단어를 잘못 배운다.
+    earsAsNose: actionMatch("touchNose", "touchEars"),
+    noseAsMouth: actionMatch("touchMouth", "touchNose"),
+    mouthAsNose: actionMatch("touchNose", "touchMouth"),
+    mouthAsChin: actionMatch("touchChin", "touchMouth"),
+    chinAsMouth: actionMatch("touchMouth", "touchChin"),
+    earsAsCheeks: actionMatch("touchCheeks", "touchEars"),
+    cheeksAsEars: actionMatch("touchEars", "touchCheeks"),
+    eyesAsCheeks: actionMatch("touchCheeks", "touchEyes"),
+    faceAsHead: actionMatch("touchHead", "touchFace")
   };
-  // 새 얼굴·상체 동작이 자기 프리셋에서는 정상 인식되어야 한다.
-  const actionPositives = {
-    raiseOneHand: actionMatch("raiseOneHand", "raiseOneHand"),
-    touchEars: actionMatch("touchEars", "touchEars"),
-    touchNose: actionMatch("touchNose", "touchNose"),
-    crossArms: actionMatch("crossArms", "crossArms")
-  };
+  // 모든 미션이 자기 프리셋에서는 인식되어야 한다.
+  const actionPositives = Object.fromEntries(
+    ACTION_COMMANDS.map((action) => [action.id, actionMatch(action.id, action.id)])
+  );
+  // 가만히 서 있는 자세는 어떤 미션도 통과시키면 안 된다(가만히 있어도 넘어가는 미션 = 망가진 미션).
+  const standMatchesAny = Object.fromEntries(
+    ACTION_COMMANDS.map((action) => [action.id, actionMatch(action.id, "stand")]).filter(([, v]) => v)
+  );
+  const legFree = ACTION_COMMANDS.every((action) =>
+    !action.required.some((index) => [LM.lk, LM.rk, LM.la, LM.ra].includes(index)));
+  cameraRect = savedRect;playRect = savedPlay;
   results.actionNegatives = {
-    pass: headroomRejected && !offFramePoseUsable && !offFrameHandsMatch && !overheadVTouchHeadMatch
+    pass: headroomRejected && !offFramePoseUsable && !offFrameHandsMatch && !overheadVTouchFaceMatch
       && Object.values(actionCrossMatches).every((value) => !value)
       && Object.values(actionPositives).every((value) => value)
-      && ACTION_COMMANDS.every((action) => !action.required.some((index) => [LM.lk, LM.rk, LM.la, LM.ra].includes(index))),
-    headroomRejected, offFramePoseUsable, offFrameHandsMatch, overheadVTouchHeadMatch, actionCrossMatches, actionPositives
+      && Object.keys(standMatchesAny).length === 0
+      && legFree,
+    headroomRejected, offFramePoseUsable, offFrameHandsMatch, overheadVTouchFaceMatch, legFree,
+    failedCrossMatches: Object.entries(actionCrossMatches).filter(([, v]) => v).map(([k]) => k),
+    failedPositives: Object.entries(actionPositives).filter(([, v]) => !v).map(([k]) => k),
+    standMatches: Object.keys(standMatchesAny)
   };
+  // 미션 덱: 매판 무작위로 10개를 뽑고, 은행을 한 바퀴 돌기 전에는 같은 미션이 다시 나오지 않는다.
+  const freshDeck = () => { usedActionOrder = []; usedActionSet = new Set(); return buildActionDeck().map((action) => action.id); };
+  const deckA = freshDeck();
+  const deckB = buildActionDeck().map((action) => action.id);
+  const deckOverlap = deckA.filter((id) => deckB.includes(id));
+  const deckOrders = new Set();
+  for (let i = 0; i < 12; i++) deckOrders.add(freshDeck().join(","));
+  results.actionDeck = {
+    pass: ACTION_COMMANDS.length >= ACTION_ROUND_MISSIONS * 2
+      && deckA.length === ACTION_ROUND_MISSIONS && deckB.length === ACTION_ROUND_MISSIONS
+      && new Set(deckA).size === ACTION_ROUND_MISSIONS
+      && deckOverlap.length === 0
+      && deckOrders.size > 1
+      && new Set(ACTION_COMMANDS.map((action) => action.id)).size === ACTION_COMMANDS.length,
+    bank: ACTION_COMMANDS.length, deckOverlap, distinctOrders: deckOrders.size
+  };
+
+  usedActionOrder = [];usedActionSet = new Set();
   selectedGame = "squat";resetScore();gameState=createGameState("squat");const actionOrder=[];
-  while (!gameState.sessionComplete && actionOrder.length <= ACTION_COMMANDS.length) {
-    const actionId = gameState.currentAction.id;
-    actionOrder.push(actionId);
-    if (actionId === "clap") { feedSyntheticPose("airplane", 6); feedSyntheticPose("clap", 16); }
-    else feedSyntheticPose(actionId, 16);
+  const deckSize = gameState.commands.length;
+  while (!gameState.sessionComplete && actionOrder.length <= deckSize) {
+    const action = gameState.currentAction;
+    actionOrder.push(action.id);
+    // 앞 동작을 풀고(가만히 섬) → 명령을 듣고 → 자세를 잡는 실제 흐름을 그대로 태운다.
+    feedSyntheticPose("stand", 4);
+    // 손뼉류는 손을 벌리는 준비 동작이 먼저다.
+    if (action.armed) feedSyntheticPose("airplane", 6);
+    feedSyntheticPose(action.id, 16);
   }
-  results.squat = { pass: gameState.completed === ACTION_COMMANDS.length && gameState.sessionComplete && completedRun && new Set(actionOrder).size === ACTION_COMMANDS.length, completed:gameState.completed, order:actionOrder, feedback:feedbacks.at(-1)?.label };
+  results.squat = {
+    pass: deckSize === ACTION_ROUND_MISSIONS && gameState.completed === deckSize
+      && gameState.sessionComplete && completedRun && new Set(actionOrder).size === deckSize,
+    completed: gameState.completed, order: actionOrder, feedback: feedbacks.at(-1)?.label
+  };
 
   selectedGame = "color";resetScore();running = true;gameState = createGameState("color");
   const colorAnswers = [];
